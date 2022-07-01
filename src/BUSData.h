@@ -28,6 +28,16 @@ struct BUSHeader {
   BUSHeader() : version(0), bclen(0), umilen(0) {}
 };
 
+struct compressed_BUSHeader
+{
+	uint32_t chunk_size;
+	uint32_t n_chunks;
+	uint32_t last_chunk;
+	BUSHeader extra_header;
+	compressed_BUSHeader() : chunk_size(0), n_chunks(0), last_chunk(0) {}
+};
+
+
 struct BUSData {
   uint64_t barcode;
   uint64_t UMI;
@@ -42,6 +52,7 @@ struct BUSData {
 bool parseHeader(std::istream &inf, BUSHeader &header);
 bool writeHeader(std::ostream &outf, const BUSHeader &header);
 
+bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &header);
 
 bool parseECs(const std::string &filename, BUSHeader &header);
 bool writeECs(const std::string &filename, const BUSHeader &header);

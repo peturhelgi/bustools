@@ -96,7 +96,41 @@ bool parseHeader(std::istream &inf, BUSHeader &header) {
   return true;
 }
 
+bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
+{
+  // The magic bytes for a compressed header is "BUS\1"
+  char magic[4];
+  inf.read((char *)(&magic[0]), 4);
+  if (std::strcmp(&magic[0], "BUS\1") != 0)
+  {
+    return false;
+  }
 
+  // The following are the information contained in the uncompressed header
+  BUSHeader header = compheader.extra_header;
+
+  inf.read((char *)(&header.version), sizeof(header.version));
+  if (header.version != BUSFORMAT_VERSION)
+  {
+    return false;
+  }
+  inf.read((char *)(&header.bclen), sizeof(header.bclen));
+  inf.read((char *)(&header.umilen), sizeof(header.umilen));
+  uint32_t tlen = 0;
+  inf.read((char *)(&tlen), sizeof(tlen));
+  char *t = new char[tlen + 1];
+  inf.read(t, tlen);
+  t[tlen] = '\0';
+  header.text.assign(t);
+  delete[] t;
+
+  // We store the compressed_header-specific information after the regular header
+  inf.read((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
+  inf.read((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
+  inf.read((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+
+  return true;
+}
 
 bool parseECs(const std::string &filename, BUSHeader &header) {
   auto &ecs = header.ecs; 

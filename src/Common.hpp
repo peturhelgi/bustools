@@ -73,6 +73,10 @@ struct Bustools_opt {
   double predquant_use_bucket_limit = 200; //if the prediction should be mapped to a bucket or not (number of UMIs in total per gene)
   double predquant_include_bucket_limit = 200;//if gene should be used in buckets for other genes or not (number of UMIs in total per gene)
 
+
+  // Compression opts
+  int chunk_size = 100000;
+
   Bustools_opt() : threads(1), max_memory(1ULL<<32), type(0),
     threshold(0), start(-1), end(-1)  {}
 };
