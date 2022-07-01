@@ -53,6 +53,8 @@ bool parseHeader(std::istream &inf, BUSHeader &header);
 bool writeHeader(std::ostream &outf, const BUSHeader &header);
 
 bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &header);
+bool writeCompressedHeader(std::ostream &inf, const compressed_BUSHeader &header);
+
 
 bool parseECs(const std::string &filename, BUSHeader &header);
 bool writeECs(const std::string &filename, const BUSHeader &header);

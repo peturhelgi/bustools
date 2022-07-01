@@ -319,6 +319,27 @@ bool writeHeader(std::ostream &outf, const BUSHeader &header) {
   return true;
 }
 
+bool writeCompressedHeader(std::ostream &outf, const compressed_BUSHeader &compheader)
+{
+  outf.write("BUS\1", 4);
+
+  // We start writing out the contents of the general header
+  const auto header = compheader.extra_header;
+  outf.write((char *)(&header.version), sizeof(header.version));
+  outf.write((char *)(&header.bclen), sizeof(header.bclen));
+  outf.write((char *)(&header.umilen), sizeof(header.umilen));
+  uint32_t tlen = header.text.size();
+  outf.write((char *)(&tlen), sizeof(tlen));
+  outf.write((char *)header.text.c_str(), tlen);
+
+  // We end by writing out the compressed-header-specific data
+  outf.write((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
+  outf.write((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
+  outf.write((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+
+  return true;
+}
+
 void write_ecs_block(std::ostream& o, const std::vector<int32_t>& v)
 {
 	static char zeros[32] = { 0 };
