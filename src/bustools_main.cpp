@@ -37,6 +37,7 @@
 #include "bustools_collapse.h"
 #include "bustools_umicorrect.h"
 #include "bustools_predquant.h"
+#include "bustools_compress.h"
 
 
 int my_mkdir(const char *path, mode_t mode) {
@@ -85,20 +86,44 @@ std::vector<std::string> parseList(const std::string &s, const std::string &sep 
 }
 
 void parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt& opt){
-  const char *opt_string = "N:";
+  const char *opt_string = "N:Lo:pT:";
   static struct option long_options[] = {
-    {"chunk_size", required_argument, 0, 'N'},
-    {0, 0, 0, 0}
-  };
+      {"chunk-size", required_argument, 0, 'N'},
+      {"lossy-umi", no_argument, 0, 'L'},
+      {"output", required_argument, 0, 'o'},
+      {"pipe", no_argument, 0, 'p'},
+      {"temp", required_argument, 0, 'T'},
+      {0, 0, 0, 0}};
   int option_index = 0, c;
   while ((c = getopt_long(argc, argv, opt_string, long_options, &option_index)) != -1){
     switch (c) {
       case 'N':
         opt.chunk_size = atoi(optarg);
         break;
+      case 'o':
+        opt.output = optarg;
+        break;
+      case 'p':
+        opt.stream_out = true;
+        break;
+      case 'T':
+        opt.temp_files = optarg;
+        break;
+
+      case 'L':
+        opt.lossy_umi = true;
+        break;
       default:
         break;
       }
+  }
+  // all other arguments are fast[a/q] files to be read
+  while (optind < argc)
+    opt.files.push_back(argv[optind++]);
+
+  if (opt.files.size() == 1 && opt.files[0] == "-")
+  {
+    opt.stream_in = true;
   }
 }
 
@@ -805,11 +830,6 @@ void parse_ProgramOptions_extract(int argc, char **argv, Bustools_opt &opt) {
 }
 
 
-bool check_ProgramOptions_compress(Bustools_opt& opt){
-  // TODO: Tailor this method to compression
-  check_ProgramOptions_sort(opt);
-}
-
 bool check_ProgramOptions_sort(Bustools_opt& opt) {
 
   bool ret = true;
@@ -903,7 +923,11 @@ bool check_ProgramOptions_sort(Bustools_opt& opt) {
   return ret;
 }
 
-
+bool check_ProgramOptions_compress(Bustools_opt &opt)
+{
+  // TODO: Tailor this method to compression
+  return check_ProgramOptions_sort(opt);
+}
 
 bool check_ProgramOptions_merge(Bustools_opt& opt) {
   bool ret = true;
@@ -2085,6 +2109,7 @@ int main(int argc, char **argv) {
       }
       parse_ProgramOptions_compress(argc - 1, argv + 1, opt);
       if (check_ProgramOptions_compress(opt)){
+        bustools_compress(opt);
         exit(0);
       } else {
         Bustools_compress_Usage();
