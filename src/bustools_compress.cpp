@@ -72,7 +72,6 @@ void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bit_pos, std::ost
 		elem = 0;
 	}
 
-	return n_elems;
 }
 void compress_barcodes(BUSData const * rows, const int row_count,
 	std::ostream& of)
