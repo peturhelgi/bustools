@@ -68,6 +68,53 @@ uint64_t fiboDecodeSingle(uint64_t const *const buf, const size_t n_buf, uint32_
 }
 
 /**
+/**
+ * @brief 
+ * 
+ * @param buf 
+ * @param max_elem 
+ * @param n_ints 
+ * @param b_bits 
+ * @param primary 
+ * @param bit_pos 
+ * @param buf_offset 
+ * @return size_t 
+ */
+size_t PfdParsePrimaryBlock(uint64_t *buf, const size_t max_elem, const int n_ints, const uint32_t b_bits, int32_t *primary, uint32_t &bit_pos, size_t buf_offset)
+{
+
+	int i = 0;
+	while (i < n_ints && buf_offset < max_elem)
+	{
+		// I: 0 <= bit_pos < 64
+
+		uint32_t n_partial = std::min(b_bits, 64 - bit_pos);
+		uint32_t bits_rem = b_bits - n_partial;
+
+		uint32_t shift = (64 - n_partial - bit_pos);
+		uint64_t mask = (1 << n_partial) - 1;
+
+		int32_t num = ((buf[buf_offset] >> shift) & mask) << bits_rem;
+
+		bit_pos = (bit_pos + n_partial) % 64;
+		// increment buf_offset if bit_pos == 0, i.e. the next element in `buf` is reached.
+		buf_offset += (!bit_pos);
+		
+		if (bits_rem)
+		{
+			shift = 64 - bits_rem;
+			num |= buf[buf_offset] >> shift;
+			bit_pos += bits_rem;
+		}
+		primary[i++] = num;
+	}
+	// std::cout << "i: " << i << '\n';
+	return buf_offset;
+}
+
+
+
+/**
  * @brief Decompress barcodes using fibonacci-runlength(0)-delta decoding.
  * 
  * @param BUF The char array occupied by at least `row_count` encoded numbers, encoded using delta-runlenght(0)-fibonacci.
