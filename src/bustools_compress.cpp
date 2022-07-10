@@ -163,6 +163,70 @@ void encode_pfd_block(
 }
 
 /**
+ * @brief Encode a block of `block_size` elements in `pfd_block` and write to of.
+ *
+ * @param block_size The number of elements in the block.
+ * @param pfd_block The elements to encode.
+ * @param index_gaps Vector to store delta-encoded indices of exceptions.
+ * @param exceptions Vector to store the most significant bits of exceptions.
+ * @param fibonacci_buf array used for storing fibonacci encoding.
+ * @param b_bits The number of bits each num in `pfd_block` is represented with.
+ * @param min_element The smallest element in `pfd_block`.
+ * @param of The ostream to write out the encoding.
+ */
+void new_pfd(
+	const size_t block_size,
+	std::vector<int32_t> &pfd_block,
+	std::vector<int32_t> &index_gaps,
+	std::vector<int32_t> &exceptions,
+	uint64_t *fibonacci_buf,
+	const size_t b_bits,
+	const int32_t min_element,
+	std::ostream &of)
+{
+	fibonacci_buf[0] = 0;
+	fibonacci_buf[1] = 0;
+	fibonacci_buf[2] = 0;
+
+	size_t buf_size = block_size / 64 * b_bits;
+	uint64_t *PFD_buf = new uint64_t[buf_size];
+	std::fill(PFD_buf, PFD_buf + buf_size, 0ULL);
+
+	uint64_t *const PFD_buf_begin = PFD_buf;
+	uint32_t bitpos{0};
+
+	encode_pfd_block(pfd_block, index_gaps, exceptions, b_bits, min_element, PFD_buf);
+
+	size_t n_exceptions = index_gaps.size();
+
+	// For more compact fibonacci encoding, we pack the fibo encoded values together
+	fiboEncode(b_bits + 1, fibonacci_buf, bitpos, of);
+	fiboEncode(min_element + 1, fibonacci_buf, bitpos, of);
+	fiboEncode(n_exceptions + 1, fibonacci_buf, bitpos, of);
+
+	for (const auto &el : index_gaps)
+	{
+		// we must increment by one, since the first index gap can be zero
+		fiboEncode(el + 1, fibonacci_buf, bitpos, of);
+	}
+	for (const auto &el : exceptions)
+	{
+		// These are always > 0 since they contain the most significant bits of exception
+		fiboEncode(el, fibonacci_buf, bitpos, of);
+	}
+
+	// Flush out the last bits of the fibo encoding.
+	if (bitpos % 64)
+	{
+		auto &element = fibonacci_buf[bitpos / 64];
+		of.write((char *)&element, sizeof(element));
+	}
+
+	of.write((char *)PFD_buf_begin, buf_size * sizeof(uint64_t));
+	delete[] PFD_buf;
+}
+
+/**
  * @brief Compress barcodes of rows using delta-runlen(0)-fibonacci encoding and write to `of`.
  *
  * @param rows BUSData array, contains at least `row_count` elements
