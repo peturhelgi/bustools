@@ -529,43 +529,50 @@ void compress_flags(BUSData const *const rows, const int row_count, std::ostream
 	}
 }
 
-void bustools_compress(const Bustools_opt &opt){
+void bustools_compress(const Bustools_opt &opt)
+{
 	BUSHeader h;
-	
+
 	// maximum chunk_size set by max_memory
 	const size_t ROW_SIZE = sizeof(BUSData);
 	size_t N = opt.max_memory / ROW_SIZE;
 	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
 
-	void (*funcs [])(BUSData const *const, const int, std::ostream &) = {&lossless_compress_umis, &lossy_compress_umis};
-	if(opt.lossy_umi){
-		std::cerr << "Lossy UMI has not been implemented, using lossless instead" << std::endl;
+	void (*funcs[])(BUSData const *, const int, std::ostream &) = {&lossless_compress_umis, &lossy_compress_umis};
+	if (opt.lossy_umi)
+	{
+		std::cerr << "Lossy UMI compression has not been implemented, using lossless instead." << std::endl;
 	}
-	void (*compress_umis)(BUSData const *const, const int, std::ostream&) = funcs[0];
+	void (*compress_umis)(BUSData const *, const int, std::ostream &) = funcs[0];
 
 	BUSData *p = new BUSData[chunk_size];
 
 	std::ofstream of;
 	std::streambuf *buf = nullptr;
 
-	if (opt.stream_out){
+	if (opt.stream_out)
+	{
 		buf = std::cout.rdbuf();
 	}
-	else{
+	else
+	{
 		of.open(opt.output);
 		buf = of.rdbuf();
 	}
 
 	std::ostream outf(buf);
 
+	// TODO: should we really allow multiple files?
 	for (const auto &infn : opt.files)
 	{
 		std::streambuf *inbuf;
 		std::ifstream inf;
-		if(opt.stream_in){
+		if (opt.stream_in)
+		{
 			inbuf = std::cin.rdbuf();
 		}
-		else{
+		else
+		{
 			inf.open(infn.c_str(), std::ios::binary);
 			inbuf = inf.rdbuf();
 		}
@@ -574,27 +581,66 @@ void bustools_compress(const Bustools_opt &opt){
 		parseHeader(in, h);
 		compressed_BUSHeader comp_h;
 		comp_h.chunk_size = chunk_size;
-		comp_h.lossy_umi = false; //opt.lossy_umi;
-		// copy header to comp_h.extra_header;
+		comp_h.lossy_umi = false && opt.lossy_umi;
+
+		comp_h.extra_header.text = h.text;
+		comp_h.extra_header.version = h.version;
+		comp_h.extra_header.bclen = h.bclen;
+		comp_h.extra_header.umilen = h.umilen;
+
+		writeCompressedHeader(outf, comp_h);
 
 		uint64_t block_counter = 0;
 		size_t last_row_count = 0;
+
+		// Store the sizes of each sub-block for easier memory allocation during decompression.
+		// This is subject to change.
+		uint32_t pos_start = outf.tellp(),
+				 pos_end = outf.tellp();
+		std::vector<uint32_t> col_sizes;
+
 		while (in.good())
 		{
 			in.read((char *)p, chunk_size * ROW_SIZE);
+
 			size_t row_count = in.gcount() / ROW_SIZE;
 			last_row_count = row_count;
 			++block_counter;
 
+			pos_start = pos_end;
 			compress_barcodes(p, row_count, outf);
+			pos_end = outf.tellp();
+			col_sizes.push_back(pos_end - pos_start);
+
+			pos_start = pos_end;
 			compress_umis(p, row_count, outf);
-			// compress_ecs(p, row_count, outf);
+			pos_end = outf.tellp();
+			col_sizes.push_back(pos_end - pos_start);
+
+			pos_start = pos_end;
+			compress_ecs(p, row_count, outf);
+			pos_end = outf.tellp();
+			col_sizes.push_back(pos_end - pos_start);
+
+			pos_start = pos_end;
 			compress_counts(p, row_count, outf);
+			pos_end = outf.tellp();
+			col_sizes.push_back(pos_end - pos_start);
+
+			pos_start = pos_end;
 			compress_flags(p, row_count, outf);
+			pos_end = outf.tellp();
+			col_sizes.push_back(pos_end - pos_start);
 		}
 
-		--block_counter;
+		outf.write((char *)&col_sizes[0], col_sizes.size() * sizeof(pos_start));
+		outf.seekp(0, std::ios_base::beg);
+
+		// Update the compressed header post compression.
 		comp_h.last_chunk = last_row_count;
-		comp_h.n_chunks = block_counter;
+		comp_h.n_chunks = block_counter - 1;
+
+		writeCompressedHeader(outf, comp_h);
 	}
+	delete[] p;
 }
