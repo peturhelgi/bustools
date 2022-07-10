@@ -68,6 +68,30 @@ uint64_t fiboDecodeSingle(uint64_t const *const buf, const size_t n_buf, uint32_
 }
 
 /**
+ * @brief Finish NewPFD encoding after parsing to account for exceptions.
+ * 
+ * @param primary A pointer to a block of packed fixed-width integers each of size `b_bits`.
+ * @param index_gaps Delta encoded indices of exceptions in `primary`.
+ * @param exceptions The most significant bits of exceptions, each one is always > 0.
+ * @param b_bits The number of bits used for packing numbers into `primary`.
+ */
+void updatePFD(int32_t *primary, std::vector<int32_t> &index_gaps, std::vector<int32_t> &exceptions, uint32_t b_bits, const int32_t min_element){
+	int i_exception = 0;
+	int exception_pos = 0;
+	assert(index_gaps.size() == exceptions.size());
+	int32_t index = 0;
+	int n = index_gaps.size();
+	for (int i = 0; i < n; ++i){
+		auto index_diff = index_gaps[i];
+		uint32_t ex = exceptions[i];
+		index += index_diff;
+		primary[index] |= (exceptions[i] << b_bits);
+	}
+	for (int i = 0; i < 512; ++i){
+		primary[i] += min_element;
+	}
+}
+
 /**
  * @brief 
  * 
