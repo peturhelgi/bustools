@@ -75,6 +75,39 @@ void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostr
 }
 
 /**
+ * @brief pack elem into buf starting at bitpos, using exactly b_bits bits.
+ * @pre num is representable using `b_bits` bits.
+ *
+ * @param b_bits The number of bits to represent elem.
+ * @param elem The number to pack, must be representable with at most `b_bits` bits.
+ * @param buf The int64_t array where elem should be packed into.
+ * @param bitpos The starting point in bits of where to back elem.
+ * @return bool: true iff packing of elem saturates buf[0].
+ */
+bool pack_int(
+	const uint32_t b_bits,
+	uint32_t elem,
+	uint64_t *buf,
+	uint32_t &bitpos)
+{
+	int32_t shift = 64 - bitpos - b_bits;
+	uint64_t carryover = 0;
+
+	if (shift < 0)
+	{
+		uint32_t r_shift = (b_bits + shift);
+		carryover = elem & ((1ULL << -shift) - 1);
+		*(buf + 1) = carryover << (64U + shift);
+		elem >>= (-shift);
+	}
+
+	*buf |= (((uint64_t)elem) << std::max(0, shift));
+
+	bitpos = (64 - shift) % 64;
+	return (shift <= 0);
+}
+
+/**
  * @brief Compress barcodes of rows using delta-runlen(0)-fibonacci encoding and write to `of`.
  *
  * @param rows BUSData array, contains at least `row_count` elements
