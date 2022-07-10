@@ -376,5 +376,104 @@ void decompress_flags(char *BUF, BUSData *rows, const size_t row_count, const si
 
 void bustools_decompress(const Bustools_opt &opt)
 {
+	compressed_BUSHeader comp_header;
+	std::ofstream of;
+	std::streambuf *buf = nullptr;
+
+	if (opt.stream_out)
+	{
+		buf = std::cout.rdbuf();
+	}
+	else
+	{
+		of.open(opt.output);
+		buf = of.rdbuf();
+	}
+
+	std::ostream outf(buf);
+	const auto &infn = opt.files[0];
+	std::streambuf *inbuf;
+	std::ifstream inf;
+
+	// don't allow stream in for now.
+	const bool allow_streamin = false;
+	if (opt.stream_in && allow_streamin)
+	{
+		inbuf = std::cin.rdbuf();
+	}
+	else
+	{
+		inf.open(infn.c_str(), std::ios::binary);
+		inbuf = inf.rdbuf();
+	}
+
+	std::istream in(inbuf);
+
+	if(!parseCompressedHeader(in, comp_header)){
+		std::cerr << "Error: Failed at parsing header.\n";
+		return;
+	}
+
+	writeHeader(outf, comp_header.extra_header);
+	BUSData *busdata = new BUSData[comp_header.chunk_size];
+
+
+	const auto data_pos = in.tellg();
+	int n_decompressors = 5;
+	uint32_t n_cols = n_decompressors * (comp_header.n_chunks + 1);
+	int32_t offset = n_cols * sizeof(uint32_t);
+
+	in.seekg(-offset, std::ios_base::end);
+
+	std::vector<uint32_t> col_sizes(n_cols);
+	in.read((char *)&col_sizes[0], offset);
+
+
+	auto col_size_it = col_sizes.begin();
+	const auto col_size_end = col_sizes.end();
+
+	void (*decompress_umi)(char *, BUSData *, const size_t, const size_t) = comp_header.lossy_umi ? &decompress_lossy_umi : &decompress_lossless_umi;
+
+	void (*decompressors[])(char *, BUSData *, const size_t, const size_t) = {
+		&decompress_barcode,
+		decompress_umi,
+		&decompress_ec,
+		&decompress_counts,
+		&decompress_flags,
+	};
+
 	
+
+	in.seekg(data_pos, std::ios_base::beg);
+
+	uint32_t curr_chunk_size = comp_header.chunk_size;
+	uint64_t i_chunk = 0;
+	size_t total = 0;
+	int i_decompressor = 0;
+
+	while (in.good() && col_size_it < col_size_end)
+	{
+		try{
+			char *BUF = new char[*col_size_it];
+			curr_chunk_size = (i_chunk == comp_header.n_chunks) ? comp_header.last_chunk : curr_chunk_size;
+
+			in.read((char *)&BUF[0], *col_size_it);
+
+			decompressors[i_decompressor](BUF, busdata, curr_chunk_size, *col_size_it);
+
+			i_decompressor = (i_decompressor + 1) % n_decompressors;
+			i_chunk += !i_decompressor;
+			++col_size_it;
+
+			if (i_decompressor == 0)
+				outf.write((char *)busdata, curr_chunk_size * sizeof(BUSData));
+
+			delete[] BUF;
+		}
+		catch(std::bad_alloc){
+			std::cerr << "Unable to allocate bytes" << std::endl;
+		}
+	}
+
+	delete[] busdata;
 }
