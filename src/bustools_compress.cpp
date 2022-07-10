@@ -10,31 +10,31 @@
 #include "BUSData.h"
 #include "bustools_compress.h"
 
-
 /**
- * @brief Encode num using fibonacci encoding into buf, starting at bit_pos
- * @pre it is safe to write to buf from [bit_pos; (bit_pos + 93) % 192] as all bits are 0, (wrapped around)
+ * @brief Encode `num` using fibonacci encoding into buf, starting at bitpos.
+ * @pre the next 128 bits in `buf` are 0 starting from `bitpos`, and wrapped around 192.
  * 		0 <= bit_pos < 3*64 == 192
- * 		obuf is open
- * @post buf now contains the fibo encoding of num from [pre(bit_pos); post(bit_pos)].
- *		bit_pos has changed, 0 <= bit_pos < 3*64 == 192.
+ *
+ * @pre num > 0
+ * @post buf now contains the fibo encoding of num from [pre(bitpos); post(bitpos)].
+ *		bit_pos has changed, 0 <= bitpos < 3*64 == 192.
  * 		0 or more elements in buf have been concentrated with fibo-encoded numbers and thus written to obuf.
  *
- * @note The largest fibonacci number that fits in a uint64_t is the 91st (0-indexed) fibo number.
- * 	Fibonacci encoding appends a single bit for marking end of number. Hence, the longest fibonacci encoding uses 93 bits.
+ * @note The largest fibonacci number that fits in a uint64_t is the 91st (0-indexed) fibo number, i.e. the first 92 fibonacci numbers fit in a 64-bit uint.
+ * 	Fibonacci encoding appends a single bit as a stop code. Hence, the longest fibonacci encoding uses 93 bits.
  *
- * @param num the number to encode
- * @param buf array of 3 uint63_t. The encoded bits are stored in buf
- * @param bit_pos the position in buf where the fibo encoding of num starts.
+ * @param num the number to encode, num > 0
+ * @param buf array of 3 uint64_t. The encoded bits are stored in buf.
+ * @param bitpos the bit position in buf where the fibo encoding of num starts.
  * @param obuf the ostream buffer to write to.
  */
-void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bit_pos, std::ostream &obuf)
+void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostream &obuf)
 {
-	constexpr uint32_t max_bit_pos = 3 * 64;
-	const uint32_t curr_byte_pos = bit_pos / 64;
+	constexpr uint32_t max_bitpos = 3 * 64;
+	const uint32_t curr_byte_pos = bitpos / 64;
 
 	const auto fibo_begin = fibo64.begin();
-	auto fibo_end = fibo64.end();
+	const auto fibo_end = fibo64.end();
 
 	uint64_t remainder = num;
 
@@ -42,36 +42,38 @@ void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bit_pos, std::ost
 	auto i = std::upper_bound(fibo_begin, fibo_end, remainder) - 1;
 
 	const uint32_t n_bits = (i - fibo_begin) + 2;
-	uint32_t next_bit_pos = bit_pos + n_bits - 1,
+	uint32_t next_bit_pos = bitpos + n_bits - 1,
 			 bit_offset = next_bit_pos % 64,
 			 buf_offset = (next_bit_pos / 64) % 3;
 
-	// Fibonacci encoding ends with two consecutive bits set.
-	buf[buf_offset] |= (1ULL << ((63 - bit_offset)));
+	// Set the stop bit.
+	buf[buf_offset] |= 1ULL << (63 - bit_offset);
 
 	i = fibo_end;
 	while (remainder > 0)
 	{
 		i = std::upper_bound(fibo_begin, i, remainder) - 1;
-		next_bit_pos = bit_pos + (i - fibo_begin);
+		next_bit_pos = bitpos + (i - fibo_begin);
 		buf_offset = (next_bit_pos / 64) % 3;
 		bit_offset = next_bit_pos % 64;
 
-		buf[buf_offset] |= (1ULL << (63 - (bit_offset)));
+		buf[buf_offset] |= 1ULL << (63 - bit_offset);
 		remainder -= *i;
 	}
 
-	int n_elems = (bit_pos + n_bits) / 64 - curr_byte_pos;
-	bit_pos = (bit_pos + n_bits) % max_bit_pos;
+	// n_elems is the number of saturated elements in buf.
+	int n_elems = (bitpos + n_bits) / 64 - curr_byte_pos;
+	bitpos = (bitpos + n_bits) % max_bitpos;
 
 	// write fibo-encoded values to output buffer for concentrated elements in buf.
-	for (int p = 0; p < n_elems; ++p){
+	for (int p = 0; p < n_elems; ++p)
+	{
 		auto &elem = buf[(curr_byte_pos + p) % 3];
 		obuf.write((char *)&elem, sizeof(elem));
 		elem = 0;
 	}
-
 }
+
 void compress_barcodes(BUSData const * rows, const int row_count,
 	std::ostream& of)
 {
