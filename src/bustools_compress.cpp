@@ -125,8 +125,7 @@ void compress_barcodes(BUSData const *const rows, const int row_count, std::ostr
 	}
 }
 
-void lossless_compress_umis(BUSData const * rows, const int row_count,
-				   std::ostream &of)
+void lossless_compress_umis(BUSData const *const rows, const int row_count, std::ostream &of)
 {
 	uint64_t last_bc = 0,
 			 last_umi = 0,
@@ -173,19 +172,16 @@ void lossless_compress_umis(BUSData const * rows, const int row_count,
 	}
 }
 
-void lossy_compress_umis(BUSData const * rows, const int row_count,
-				   std::ostream &of)
+void lossy_compress_umis(BUSData const *const rows, const int row_count, std::ostream &of)
 {
 	std::cout << "BEWARE: Lossy compression\n";
 
 }
 
-
-void compress_ecs(BUSData const * rows, const int row_count,
-	std::ostream& of)
+void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &of)
 {
 }
-void compress_counts(BUSData const * rows, const int row_count, std::ostream& of)
+void compress_counts(BUSData const *const rows, const int row_count, std::ostream &of)
 {
 	uint32_t count,
 		runlen = 0;
@@ -233,8 +229,7 @@ void compress_counts(BUSData const * rows, const int row_count, std::ostream& of
 	}
 }
 
-void compress_flags(BUSData const * rows, const int row_count,
-	std::ostream& of)
+void compress_flags(BUSData const *const rows, const int row_count, std::ostream &of)
 {
 	uint32_t flag,
 		runlen = 0;
@@ -290,11 +285,11 @@ void bustools_compress(const Bustools_opt &opt){
 	size_t N = opt.max_memory / ROW_SIZE;
 	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
 
-	void (*funcs [])(BUSData const *, const int, std::ostream &) = {&lossless_compress_umis, &lossy_compress_umis};
+	void (*funcs [])(BUSData const *const, const int, std::ostream &) = {&lossless_compress_umis, &lossy_compress_umis};
 	if(opt.lossy_umi){
 		std::cerr << "Lossy UMI has not been implemented, using lossless instead" << std::endl;
 	}
-	void (*compress_umis)(BUSData const *, const int, std::ostream&) = funcs[0];
+	void (*compress_umis)(BUSData const *const, const int, std::ostream&) = funcs[0];
 
 	BUSData *p = new BUSData[chunk_size];
 
