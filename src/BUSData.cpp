@@ -96,7 +96,47 @@ bool parseHeader(std::istream &inf, BUSHeader &header) {
   return true;
 }
 
+bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
+{
+  char magic[5];
+  char target[5] = "BUS\1";
+  target[4] = '\0';
+  magic[4] = '\0';
+  inf.read((char *)(&magic[0]), 4);
 
+  // The magic bytes for a compressed header is "BUS\1"
+  if (std::strcmp(&magic[0], target) != 0)
+  {
+    std::cerr << "Invalid header magic\n";
+    return false;
+  }
+
+  // The following are the information contained in the uncompressed header
+  BUSHeader &header = compheader.extra_header;
+
+  inf.read((char *)(&header.version), sizeof(header.version));
+  if (header.version != BUSFORMAT_VERSION)
+  {
+    return false;
+  }
+  inf.read((char *)(&header.bclen), sizeof(header.bclen));
+  inf.read((char *)(&header.umilen), sizeof(header.umilen));
+  uint32_t tlen = 0;
+  inf.read((char *)(&tlen), sizeof(tlen));
+  char *t = new char[tlen + 1];
+  inf.read(t, tlen);
+  t[tlen] = '\0';
+  header.text.assign(t);
+  delete[] t;
+
+  // We store the compressed_header-specific information after the regular header
+  inf.read((char *)&compheader.chunk_size, sizeof(compheader.chunk_size));
+  inf.read((char *)&compheader.n_chunks, sizeof(compheader.n_chunks));
+  inf.read((char *)&compheader.last_chunk, sizeof(compheader.last_chunk));
+  inf.read((char *)&compheader.lossy_umi, sizeof(compheader.lossy_umi));
+
+  return true;
+}
 
 bool parseECs(const std::string &filename, BUSHeader &header) {
   auto &ecs = header.ecs; 
@@ -281,6 +321,28 @@ bool writeHeader(std::ostream &outf, const BUSHeader &header) {
   uint32_t tlen = header.text.size();
   outf.write((char*)(&tlen), sizeof(tlen));
   outf.write((char*)header.text.c_str(), tlen);
+
+  return true;
+}
+
+bool writeCompressedHeader(std::ostream &outf, const compressed_BUSHeader &compheader)
+{
+  outf.write("BUS\1", 4);
+
+  // We start writing out the contents of the general header
+  const auto header = compheader.extra_header;
+  outf.write((char *)(&header.version), sizeof(header.version));
+  outf.write((char *)(&header.bclen), sizeof(header.bclen));
+  outf.write((char *)(&header.umilen), sizeof(header.umilen));
+  uint32_t tlen = header.text.size();
+  outf.write((char *)(&tlen), sizeof(tlen));
+  outf.write((char *)header.text.c_str(), tlen);
+
+  // We end by writing out the compressed-header-specific data
+  outf.write((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
+  outf.write((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
+  outf.write((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+  outf.write((char *)(&compheader.lossy_umi), sizeof(compheader.lossy_umi));
 
   return true;
 }
