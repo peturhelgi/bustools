@@ -130,9 +130,10 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
   delete[] t;
 
   // We store the compressed_header-specific information after the regular header
-  inf.read((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
-  inf.read((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
-  inf.read((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+  inf.read((char *)&compheader.chunk_size, sizeof(compheader.chunk_size));
+  inf.read((char *)&compheader.n_chunks, sizeof(compheader.n_chunks));
+  inf.read((char *)&compheader.last_chunk, sizeof(compheader.last_chunk));
+  inf.read((char *)&compheader.lossy_umi, sizeof(compheader.lossy_umi));
 
   return true;
 }
@@ -341,6 +342,7 @@ bool writeCompressedHeader(std::ostream &outf, const compressed_BUSHeader &comph
   outf.write((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
   outf.write((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
   outf.write((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+  outf.write((char *)(&compheader.lossy_umi), sizeof(compheader.lossy_umi));
 
   return true;
 }
