@@ -123,7 +123,47 @@ void decompress_barcode(char *BUF, BUSData *rows, const size_t row_count, const 
  * @param buf_size The size of the input array `BUF`.
  */
 void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {
-	
+	uint64_t *BUF64 = (uint64_t *)BUF;
+	size_t buf64_size = (buf_size - 1) / (sizeof(uint64_t)) + 1;
+
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+	size_t row_index = 0;
+	uint64_t diff = 0,
+			 last_barcode = rows[0].barcode + 1,
+			 umi = 0,
+			 barcode,
+			 runlen = 0;
+
+	uint64_t RLE_VAL{0ULL};
+
+	while(row_index < row_count){
+		diff = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+		barcode = rows[row_index].barcode;
+		if (barcode != last_barcode)
+		{
+			umi = 0;
+		}
+
+		if (diff == RLE_VAL)
+		{
+			// diff is runlen encoded, next values are identical.
+			runlen = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset);
+			for (int i = 0; i < runlen; ++i)
+			{
+				rows[row_index].UMI = umi - 1;
+				++row_index;
+			}
+		}
+		else{
+			// Current element is a delta
+			umi += diff;
+			rows[row_index].UMI = umi - 1;
+			++row_index;
+		}
+		last_barcode = barcode;
+	}
 }
 /**
  * @brief Decompress UMIs which have been compressed in a lossy manner.
