@@ -125,49 +125,64 @@ void compress_barcodes(BUSData const *const rows, const int row_count, std::ostr
 	}
 }
 
+/**
+ * @brief Compress UMIs of rows using periodic_delta-runlen(0)-fibonacci encoding and write to `of`.
+ *
+ * @param rows BUSData array, contains at least `row_count` elements
+ * @param row_count The number of UMIs to compress.
+ * @param of The ostream for writing the encoding to.
+ */
 void lossless_compress_umis(BUSData const *const rows, const int row_count, std::ostream &of)
 {
-	uint64_t last_bc = 0,
+	uint64_t last_bc = rows[0].barcode + 1,
 			 last_umi = 0,
 			 bc, umi, diff;
 
-	uint64_t buf[3]{0, 0, 0};
-	uint32_t bit_pos{0};
-	const uint32_t RLE_val{0ULL};
+	uint64_t fibonacci_buf[3]{0, 0, 0};
+
+	uint32_t bitpos{0};
 	uint64_t runlen{0};
+	const uint32_t RLE_val{0ULL};
 
-	for (int i = 0; i < row_count; ++i){
+	for (int i = 0; i < row_count; ++i) {
 		bc = rows[i].barcode;
-		umi = rows[i].UMI;
 
-		if(last_bc != bc){
+		// We must increment umi, since a UMI==0 will confuse the runlength decoder.
+		umi = rows[i].UMI + 1;
+
+		if (last_bc != bc) {
 			last_umi = 0;
 		}
-		diff = umi - last_umi;
-		last_umi = umi;
-		last_bc = bc;
 
-		if(diff == RLE_val){
+		diff = umi - last_umi;
+
+		if (diff == RLE_val) {
 			++runlen;
 		}
-		else{
-			if(runlen){
-				fiboEncode(RLE_val + 1, buf, bit_pos, of);
-				fiboEncode(runlen, buf, bit_pos, of);
+		else
+		{
+			// Increment values for fibonacci encoding.
+			if (runlen) {
+				fiboEncode(RLE_val + 1, fibonacci_buf, bitpos, of);
+				fiboEncode(runlen, fibonacci_buf, bitpos, of);
 				runlen = 0;
 			}
-			fiboEncode(diff + 1, buf, bit_pos, of);
+			fiboEncode(diff + 1, fibonacci_buf, bitpos, of);
 		}
-	}
-	if(runlen){
-		fiboEncode(RLE_val + 1, buf, bit_pos, of);
-		fiboEncode(runlen, buf, bit_pos, of);
+
+		last_umi = umi;
+		last_bc = bc;
 	}
 
-	// Write last bytes when the buffers have not been completely filled.
-	if(bit_pos % 64)
-	{
-		auto &element = buf[bit_pos / 64];
+	// Take care of the last run of zeros.
+	if (runlen) {
+		fiboEncode(RLE_val + 1, fibonacci_buf, bitpos, of);
+		fiboEncode(runlen, fibonacci_buf, bitpos, of);
+	}
+
+	// Write last bytes if the fibonacci_buf has not been saturated.
+	if (bitpos % 64) {
+		auto &element = fibonacci_buf[bitpos / 64];
 		of.write((char *)(&element), sizeof(element));
 	}
 }
