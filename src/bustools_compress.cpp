@@ -74,8 +74,14 @@ void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostr
 	}
 }
 
-void compress_barcodes(BUSData const * rows, const int row_count,
-	std::ostream& of)
+/**
+ * @brief Compress barcodes of rows using delta-runlen(0)-fibonacci encoding and write to `of`.
+ *
+ * @param rows BUSData array, contains at least `row_count` elements
+ * @param row_count The number of barcodes to compress.
+ * @param of The ostream for writing the encoding to.
+ */
+void compress_barcodes(BUSData const *const rows, const int row_count, std::ostream &of)
 {
 	uint64_t barcode, last_bc = 0;
 	uint64_t runlen = 0;
@@ -85,38 +91,35 @@ void compress_barcodes(BUSData const * rows, const int row_count,
 
 	for (int i = 0; i < row_count; ++i)
 	{
-		// barcode = rows[i].barcode;
-		barcode = (*rows).barcode;
-		// delta:
+		barcode = rows[i].barcode;
+
+		// delta encoding
 		barcode -= last_bc;
-		last_bc = (*rows).barcode;
-		++rows;
 
-		// Runlength
-		if(barcode == 0){
+		// Runlength encoding of zeros
+		if (barcode == 0) {
 			++runlen;
-		}
-		else{
+		} else
+		{
 			// Increment values as fibo cannot encode 0
-			if(runlen){
-				// fibonacci encode 0 and runlen
-				// fibo(1), since fibonacci encodes only strictly positive numbers
-
+			if (runlen) {
 				fiboEncode(1ULL, buf, bit_pos, of);
 				fiboEncode(runlen, buf, bit_pos, of);
 				runlen = 0;
 			}
-			// encode value + 1
 			fiboEncode(barcode + 1, buf, bit_pos, of);
 		}
+		last_bc = rows[i].barcode;
 	}
-	if(runlen){
+
+	// Take care of the last run of zeros in the delta-encoded barcodes
+	if (runlen) {
 		fiboEncode(1ULL, buf, bit_pos, of);
 		fiboEncode(runlen, buf, bit_pos, of);
 	}
 
-	if (bit_pos % 64)
-	{
+	// Write out the last fibonacci element if applicable.
+	if (bit_pos % 64) {
 		auto &element = buf[bit_pos / 64];
 		of.write((char *)(&element), sizeof(element));
 	}
