@@ -258,7 +258,58 @@ void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t row_count, cons
  */
 void decompress_ec(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
 {
-	
+	uint32_t b_bits = 1;
+	uint32_t buf_offset{0};
+
+	uint64_t *BUF64 = (uint64_t *)BUF;
+
+	size_t buf64_size = (buf_size - 1) / sizeof(uint64_t) + 1;
+	uint32_t bitpos{0}, i_fibo{0};
+
+	int32_t min_element{0};
+
+	int32_t primary[512];
+	size_t n_exceptions{0};
+	std::vector<int32_t> exceptions;
+	std::vector<int32_t> index_gaps;
+
+	b_bits = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+	min_element = (int32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+	n_exceptions = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+
+	size_t row_index = 0;
+	while (b_bits)
+	{
+
+		index_gaps.clear();
+		exceptions.clear();
+
+		const auto *start_pos = BUF;
+
+		for (int i = 0; i < n_exceptions; ++i)
+		{
+			index_gaps.push_back(fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1);
+		}
+		
+		for (int i = 0; i < n_exceptions; ++i)
+		{
+			exceptions.push_back(fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset));
+		}
+
+		buf_offset += (bitpos > 0);
+		bitpos = 0;
+
+		buf_offset = PfdParsePrimaryBlock(BUF64, buf64_size, 512, b_bits, primary, bitpos, buf_offset);
+		updatePFD(primary, index_gaps, exceptions, b_bits, min_element);
+		for (int i = 0; i < 512 && row_index < row_count; ++i){
+			rows[row_index].ec = primary[i];
+			++row_index;
+		}
+		
+		b_bits = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+		min_element = (int32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+		n_exceptions = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+	}
 }
 
 /**
