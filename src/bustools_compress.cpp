@@ -227,6 +227,35 @@ void new_pfd(
 }
 
 /**
+ * @brief Compute the smallest element, and the number of bits required to encode at least 90% of
+ * the numbers in pfd_scratch.
+ * @pre pfd_scratch contains the numbers to encode in a block
+ * @post pfd_scratch may have been reordered.
+ * @param block_size The number of elements in pfd_scratch, i.e. the block size.
+ * @param pfd_scratch The numbers to encode in a single block using NewPFD.
+ * @param min_element Output: The smallest element in `pfd_scratch`.
+ * @param b_bits Output: The minimum number of bits that are enough to encode at least ~90% of the elements in `pfd_scratch`.
+ */
+void compute_pfd_params(
+	const size_t block_size,
+	std::vector<int32_t> &pfd_scratch,
+	int32_t &min_element,
+	uint32_t &b_bits)
+{
+	const size_t nth_elem_idx = (size_t)((double)block_size * 0.9f);
+	std::nth_element(pfd_scratch.begin(), pfd_scratch.begin(), pfd_scratch.end());
+	min_element = pfd_scratch[0];
+
+	std::nth_element(
+		pfd_scratch.begin(),
+		pfd_scratch.begin() + nth_elem_idx,
+		pfd_scratch.end());
+
+	int32_t nth_max_element = pfd_scratch[nth_elem_idx];
+	b_bits = 31 - __builtin_clrsb(nth_max_element - min_element);
+}
+
+/**
  * @brief Compress barcodes of rows using delta-runlen(0)-fibonacci encoding and write to `of`.
  *
  * @param rows BUSData array, contains at least `row_count` elements
