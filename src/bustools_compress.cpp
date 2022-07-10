@@ -374,8 +374,60 @@ void lossy_compress_umis(BUSData const *const rows, const int row_count, std::os
 
 }
 
+/**
+ * @brief Compress ECs of rows using NewPFD-fibonacci encoding and write to `of`.
+ *
+ * @param rows BUSData array, contains at least `row_count` elements
+ * @param row_count The number of ECs to compress.
+ * @param of The ostream for writing the encoding to.
+ */
 void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &of)
 {
+	size_t BLOCK_SIZE{512};
+	std::vector<int32_t> index_gaps,
+		pfd_scratch,
+		pfd_block,
+		exceptions;
+
+	index_gaps.reserve(BLOCK_SIZE);
+	pfd_scratch.reserve(BLOCK_SIZE);
+	pfd_block.reserve(BLOCK_SIZE);
+
+	uint64_t fibonacci_buf[]{0, 0, 0};
+
+	int row_index{0};
+	int pfd_row_index{0};
+
+	while (row_index < row_count)
+	{
+		fibonacci_buf[0] = 0;
+		fibonacci_buf[1] = 0;
+		fibonacci_buf[2] = 0;
+		pfd_row_index = 0;
+		pfd_scratch.clear();
+		pfd_block.clear();
+
+		while (pfd_row_index < BLOCK_SIZE && row_index < row_count)
+		{
+			pfd_scratch.push_back(rows[row_index].ec);
+			pfd_block.push_back(rows[row_index].ec);
+
+			++pfd_row_index;
+			++row_index;
+		}
+
+		uint32_t b_bits = 0;
+		int32_t min_element = 0;
+		compute_pfd_params(BLOCK_SIZE, pfd_scratch, min_element, b_bits);
+		new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf, b_bits, min_element, of);
+	}
+
+	pfd_block.clear();
+
+	// pfd_row_index is then the number of ints in the last block.
+	// We signal the end of chunk by encoding b_bits = 0, with the number of elements in the last block as min_element.
+	// Since pfd_block is cleared, no additional values will be written (except n_exceptions which adds 2 bits).
+	new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf, 0, pfd_row_index, of);
 }
 
 /**
