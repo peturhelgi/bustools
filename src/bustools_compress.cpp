@@ -181,50 +181,55 @@ void lossy_compress_umis(BUSData const *const rows, const int row_count, std::os
 void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &of)
 {
 }
+
+/**
+ * @brief Compress counts of rows using runlength(1)-fibonacci encoding and write to `of`.
+ *
+ * @param rows BUSData array, contains at least `row_count` elements
+ * @param row_count The number of counts to compress.
+ * @param of The ostream for writing the encoding to.
+ */
 void compress_counts(BUSData const *const rows, const int row_count, std::ostream &of)
 {
+	const uint32_t RLE_val{1UL};
 	uint32_t count,
-		runlen = 0;
+		runlen{0},
+		bitpos{0};
 
 	uint64_t buf[3]{0, 0, 0};
-	uint32_t bit_pos{0};
-
-	const uint32_t RLE_val{1UL};
 
 	for (int i = 0; i < row_count; ++i)
 	{
 		count = rows[i].count;
 
-		// Runlength, encode 1
 		if (count == RLE_val)
 		{
 			++runlen;
 		}
 		else
 		{
-			// Increment values as fibo cannot encode 0
 			if (runlen)
 			{
-				// fibonacci encode 1 and runlen
-				fiboEncode(RLE_val, buf, bit_pos, of);
-				fiboEncode(runlen, buf, bit_pos, of);
+				// Runlength-encode 1s.
+				fiboEncode(RLE_val, buf, bitpos, of);
+				fiboEncode(runlen, buf, bitpos, of);
 				runlen = 0;
 			}
 
-			// encode value
-			fiboEncode(count, buf, bit_pos, of);
+			fiboEncode(count, buf, bitpos, of);
 		}
 	}
 	if (runlen)
 	{
-		fiboEncode(RLE_val, buf, bit_pos, of);
-		fiboEncode(runlen, buf, bit_pos, of);
+		// Runlength-encode last run of 1s.
+		fiboEncode(RLE_val, buf, bitpos, of);
+		fiboEncode(runlen, buf, bitpos, of);
 	}
 
-	// TODO: check if we need to change this.
-	if (bit_pos % 64)
+	// Write last bytes when if the fibonacci_buf has not been saturated.
+	if (bitpos % 64)
 	{
-		auto &element = buf[bit_pos / 64];
+		auto &element = buf[bitpos / 64];
 		of.write((char *)(&element), sizeof(element));
 	}
 }
