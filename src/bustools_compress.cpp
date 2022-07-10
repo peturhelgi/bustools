@@ -77,6 +77,8 @@ void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostr
 /**
  * @brief pack elem into buf starting at bitpos, using exactly b_bits bits.
  * @pre num is representable using `b_bits` bits.
+ * @pre buf has at least one element
+ * @pre buf has at least two elements if bitpos + b_bits > 64.
  *
  * @param b_bits The number of bits to represent elem.
  * @param elem The number to pack, must be representable with at most `b_bits` bits.
@@ -105,6 +107,59 @@ bool pack_int(
 
 	bitpos = (64 - shift) % 64;
 	return (shift <= 0);
+}
+
+/**
+ * @brief Encode a block of integers using NewPFD.
+ * @pre BUF has a size of `pfd_block`.size() / 64 * `b_bits` elements.
+ *
+ * @param pfd_block The numbers to encode.
+ * @param index_gaps Output: delta encoded indices of exceptions in `pfd_block`.
+ * @param exceptions Output: The most significant bits of each exception.
+ * @param b_bits The number of bits to use per int for the block.
+ * @param min_element The smallest element in `pfd_block`.
+ * @param BUF The buffer to pack the elements of pfd_block into.
+ */
+void encode_pfd_block(
+	std::vector<int32_t> &pfd_block,
+	std::vector<int32_t> &index_gaps,
+	std::vector<int32_t> &exceptions,
+	const uint32_t b_bits,
+	const int32_t min_element,
+	uint64_t *BUF)
+{
+	index_gaps.clear();
+	exceptions.clear();
+
+	uint32_t bitpos = 0;
+	uint32_t max_elem_bit_mask = (1 << b_bits) - 1;
+	uint32_t idx = 0,
+			 last_ex_idx = 0;
+
+	bool do_increment_pointer = 0;
+
+	// Store the elements in the primary block in pfd_buf using `b_bits` bits each.
+	for (auto &elem : pfd_block)
+	{
+		elem -= min_element;
+
+		if (elem > max_elem_bit_mask)
+		{
+			// store the overflowing, most significant bits as exceptions.
+			uint64_t ex = (uint64_t)elem >> b_bits;
+
+			exceptions.push_back(elem >> b_bits);
+			index_gaps.push_back(idx - last_ex_idx);
+			last_ex_idx = idx;
+
+			// store the least b significant bits in the frame.
+			elem &= max_elem_bit_mask;
+		}
+
+		do_increment_pointer = pack_int(b_bits, (uint32_t)elem, BUF, bitpos);
+		BUF += do_increment_pointer;
+		++idx;
+	}
 }
 
 /**
