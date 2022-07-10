@@ -98,16 +98,21 @@ bool parseHeader(std::istream &inf, BUSHeader &header) {
 
 bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
 {
-  // The magic bytes for a compressed header is "BUS\1"
-  char magic[4];
+  char magic[5];
+  char target[5] = "BUS\1";
+  target[4] = '\0';
+  magic[4] = '\0';
   inf.read((char *)(&magic[0]), 4);
-  if (std::strcmp(&magic[0], "BUS\1") != 0)
+
+  // The magic bytes for a compressed header is "BUS\1"
+  if (std::strcmp(&magic[0], target) != 0)
   {
+    std::cerr << "Invalid header magic\n";
     return false;
   }
 
   // The following are the information contained in the uncompressed header
-  BUSHeader header = compheader.extra_header;
+  BUSHeader &header = compheader.extra_header;
 
   inf.read((char *)(&header.version), sizeof(header.version));
   if (header.version != BUSFORMAT_VERSION)
@@ -125,9 +130,10 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
   delete[] t;
 
   // We store the compressed_header-specific information after the regular header
-  inf.read((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
-  inf.read((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
-  inf.read((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+  inf.read((char *)&compheader.chunk_size, sizeof(compheader.chunk_size));
+  inf.read((char *)&compheader.n_chunks, sizeof(compheader.n_chunks));
+  inf.read((char *)&compheader.last_chunk, sizeof(compheader.last_chunk));
+  inf.read((char *)&compheader.lossy_umi, sizeof(compheader.lossy_umi));
 
   return true;
 }
@@ -336,6 +342,7 @@ bool writeCompressedHeader(std::ostream &outf, const compressed_BUSHeader &comph
   outf.write((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
   outf.write((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
   outf.write((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+  outf.write((char *)(&compheader.lossy_umi), sizeof(compheader.lossy_umi));
 
   return true;
 }
