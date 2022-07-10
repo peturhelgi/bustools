@@ -198,7 +198,26 @@ void decompress_ec(char *BUF, BUSData *rows, const size_t row_count, const size_
  * @param buf_size The size of the input array `BUF`.
  */
 void decompress_counts(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {
-	
+	uint64_t *BUF64 = (uint64_t *)BUF;
+	size_t buf64_size = (buf_size - 1) / (sizeof(uint64_t)) + 1;
+
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+	size_t row_index = 0;
+
+	uint32_t curr_el = 0,
+			 runlen = 0;
+	const uint32_t RLE_val{1U};
+
+	while(row_index < row_count){
+		curr_el = (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset);
+		runlen = curr_el == RLE_val ? (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) : 1;
+		for (int i = 0; i < runlen; ++i){
+			rows[row_index].count = curr_el;
+			++row_index;
+		}
+	}
 }
 
 /**
@@ -209,7 +228,27 @@ void decompress_counts(char *BUF, BUSData *rows, const size_t row_count, const s
  * @param buf_size The size of the input array `BUF`.
  */
 void decompress_flags(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {
-	
+	uint64_t *BUF64 = (uint64_t *)BUF;
+	size_t buf64_size = (buf_size - 1) / (sizeof(uint64_t)) + 1;
+
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+	size_t row_index = 0;
+
+	uint32_t curr_el = 0,
+			 runlen = 0;
+	const uint32_t RLE_val{0U};
+
+	while(row_index < row_count){
+		curr_el = (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+		runlen = curr_el == RLE_val ? (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) : 1;
+		for (int i = 0; i < runlen; ++i)
+		{
+			rows[row_index].flags = curr_el;
+			++row_index;
+		}
+	}
 }
 
 
