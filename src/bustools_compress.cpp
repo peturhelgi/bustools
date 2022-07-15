@@ -21,6 +21,56 @@ inline void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
 	}
 }
 constexpr size_t cache_size = 128;
+
+
+template <size_t bufsize>
+void fiboEncode8(const uint64_t num, unsigned char buf[24], uint32_t &bitpos, std::ostream &obuf)
+{
+	constexpr uint32_t word_size = sizeof(unsigned char) * 8;
+	constexpr uint32_t max_bitpos = bufsize * word_size;
+
+	const uint32_t curr_byte_pos = bitpos / word_size;
+
+	const auto fibo_begin = fibo64.begin();
+	const auto fibo_end = fibo64.end();
+
+	uint64_t remainder = num;
+
+	// the ith fibonacci number is the largest fibo not greater than remainder
+	auto i = std::upper_bound(fibo_begin, fibo_end, remainder) - 1;
+
+	const uint32_t n_bits = (i - fibo_begin) + 2;
+	uint32_t next_bit_pos = bitpos + n_bits - 1,
+			 bit_offset = next_bit_pos % word_size,
+			 buf_offset = (next_bit_pos / word_size) % bufsize;
+
+	// Set the stop bit.
+	buf[buf_offset] |= shifted_8[word_size - 1 - bit_offset];
+
+	i = fibo_end;
+	while (remainder > 0)
+	{
+		i = std::upper_bound(fibo_begin, i, remainder) - 1;
+		next_bit_pos = bitpos + (i - fibo_begin);
+		buf_offset = (next_bit_pos / word_size) % bufsize;
+		bit_offset = next_bit_pos % word_size;
+
+		buf[buf_offset] |= shifted_8[word_size - 1 - bit_offset];
+		remainder -= *i;
+	}
+
+	// n_elems is the number of saturated elements in buf.
+	int n_elems = (bitpos + n_bits) / word_size - curr_byte_pos;
+	bitpos = (bitpos + n_bits) % max_bitpos;
+
+	// write fibo-encoded values to output buffer for concentrated elements in buf.
+	for (int p = 0; p < n_elems; ++p)
+	{
+		auto &elem = buf[(curr_byte_pos + p) % bufsize];
+		obuf.write((char *)&elem, sizeof(elem));
+		elem = 0;
+	}
+}
 /**
  * @brief Encode `num` using fibonacci encoding into buf, starting at bitpos.
  * @pre the next 128 bits in `buf` are 0 starting from `bitpos`, and wrapped around 192.
