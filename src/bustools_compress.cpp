@@ -10,6 +10,17 @@
 #include "BUSData.h"
 #include "bustools_compress.h"
 
+
+template <typename T>
+void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
+{
+	uint32_t sz = sizeof(T) * 8;
+	if(bitpos % sz){
+		auto &element = buf[bitpos / sz];
+		of.write((char *)&element, sizeof(element));
+	}
+}
+constexpr size_t cache_size = 128;
 /**
  * @brief Encode `num` using fibonacci encoding into buf, starting at bitpos.
  * @pre the next 128 bits in `buf` are 0 starting from `bitpos`, and wrapped around 192.
