@@ -227,11 +227,12 @@ void new_pfd(
 	}
 
 	// Flush out the last bits of the fibo encoding.
-	if (bitpos % 64)
-	{
-		auto &element = fibonacci_buf[bitpos / 64];
-		of.write((char *)&element, sizeof(element));
-	}
+	// if (bitpos % 64)
+	// {
+	// 	auto &element = fibonacci_buf[bitpos / 64];
+	// 	of.write((char *)&element, sizeof(element));
+	// }
+	flush_fibonacci(fibonacci_buf, bitpos, of);
 
 	of.write((char *)PFD_buf_begin, buf_size * sizeof(uint64_t));
 	delete[] PFD_buf;
@@ -311,10 +312,7 @@ void compress_barcodes(BUSData const *const rows, const int row_count, std::ostr
 	}
 
 	// Write out the last fibonacci element if applicable.
-	if (bit_pos % 64) {
-		auto &element = buf[bit_pos / 64];
-		of.write((char *)(&element), sizeof(element));
-	}
+	flush_fibonacci(buf, bit_pos, of);
 }
 
 /**
@@ -373,10 +371,7 @@ void lossless_compress_umis(BUSData const *const rows, const int row_count, std:
 	}
 
 	// Write last bytes if the fibonacci_buf has not been saturated.
-	if (bitpos % 64) {
-		auto &element = fibonacci_buf[bitpos / 64];
-		of.write((char *)(&element), sizeof(element));
-	}
+	flush_fibonacci(fibonacci_buf, bitpos, of);
 }
 
 void lossy_compress_umis(BUSData const *const rows, const int row_count, std::ostream &of)
@@ -486,11 +481,7 @@ void compress_counts(BUSData const *const rows, const int row_count, std::ostrea
 	}
 
 	// Write last bytes when if the fibonacci_buf has not been saturated.
-	if (bitpos % 64)
-	{
-		auto &element = buf[bitpos / 64];
-		of.write((char *)(&element), sizeof(element));
-	}
+	flush_fibonacci(buf, bitpos, of);
 }
 
 /**
@@ -534,10 +525,7 @@ void compress_flags(BUSData const *const rows, const int row_count, std::ostream
 	}
 
 	// Write last bytes when if the fibonacci_buf has not been saturated.
-	if (bit_pos % 64) {
-		auto &element = buf[bit_pos / 64];
-		of.write((char *)(&element), sizeof(element));
-	}
+	flush_fibonacci(buf, bit_pos, of);
 }
 
 void bustools_compress(const Bustools_opt &opt)
