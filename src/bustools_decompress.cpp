@@ -448,13 +448,14 @@ void bustools_decompress(const Bustools_opt &opt)
 
 	uint32_t curr_chunk_size = comp_header.chunk_size;
 	uint64_t i_chunk = 0;
-	size_t total = 0;
 	int i_decompressor = 0;
+	uint32_t max_col_size = *std::max_element(col_sizes.begin(), col_sizes.end());
 
-	while (in.good() && col_size_it < col_size_end)
+	try
 	{
-		try{
-			char *BUF = new char[*col_size_it];
+		char *BUF = new char[max_col_size];
+		while (in.good() && col_size_it < col_size_end)
+		{
 			curr_chunk_size = (i_chunk == comp_header.n_chunks) ? comp_header.last_chunk : curr_chunk_size;
 
 			in.read((char *)&BUF[0], *col_size_it);
@@ -468,11 +469,12 @@ void bustools_decompress(const Bustools_opt &opt)
 			if (i_decompressor == 0)
 				outf.write((char *)busdata, curr_chunk_size * sizeof(BUSData));
 
-			delete[] BUF;
 		}
-		catch(std::bad_alloc){
-			std::cerr << "Unable to allocate bytes" << std::endl;
-		}
+		delete[] BUF;
+	}
+	catch (std::bad_alloc)
+	{
+		std::cerr << "Unable to allocate bytes" << std::endl;
 	}
 
 	delete[] busdata;
