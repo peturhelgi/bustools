@@ -42,9 +42,6 @@ uint64_t fiboDecodeSingle(T const *const buf, const size_t n_buf, uint32_t &i_fi
 	int last_bit = 0;
 
 	++bitpos;
-	bool print =0;
-	bool print_fibo = print && 0;
-	bool print_bits = print && !print_fibo;
 
 	while (last_bit + bit < 2 && buf_offset < n_buf)
 	{
@@ -69,63 +66,30 @@ uint64_t fiboDecodeSingle(T const *const buf, const size_t n_buf, uint32_t &i_fi
 	return num;
 }
 
-uint64_t fiboDecodeSingle8(u_char const *const buf, const size_t n_buf, uint32_t &i_fibo, uint32_t &bitpos, uint32_t &bufpos)
-{
-	size_t SIZE = sizeof(u_char) * 8;
-	size_t buf_offset = bufpos;
-	size_t bit_offset = SIZE - (bitpos % SIZE) - 1;
-	uint64_t num{0};
-
-	int bit = (buf[buf_offset] >> bit_offset) & 1;
-	int last_bit = 0;
-
-	++bitpos;
-
-	while (last_bit + bit < 2 && buf_offset < n_buf)
-	{
-		last_bit = bit;
-		num += bit * (fibo64[i_fibo]);
-
-		buf_offset = bufpos + bitpos / SIZE;
-		bit_offset = SIZE - (bitpos % SIZE) - 1;
-
-		bit = (buf[buf_offset] >> bit_offset) & 1;
-
-		++bitpos;
-		++i_fibo;
-	}
-	if (last_bit + bit == 2)
-	{
-		i_fibo = 0;
-	}
-
-	bufpos += (bitpos / SIZE);
-	bitpos %= SIZE;
-	return num;
-}
-
-	/**
-	 * @brief Finish NewPFD encoding after parsing to account for exceptions.
-	 *
-	 * @param primary A pointer to a block of packed fixed-width integers each of size `b_bits`.
-	 * @param index_gaps Delta encoded indices of exceptions in `primary`.
-	 * @param exceptions The most significant bits of exceptions, each one is always > 0.
-	 * @param b_bits The number of bits used for packing numbers into `primary`.
-	 */
-	void updatePFD(int32_t *primary, std::vector<int32_t> &index_gaps, std::vector<int32_t> &exceptions, uint32_t b_bits, const int32_t min_element)
+/**
+ * @brief Finish NewPFD encoding after parsing to account for exceptions.
+ *
+ * @param primary A pointer to a block of packed fixed-width integers each of size `b_bits`.
+ * @param index_gaps Delta encoded indices of exceptions in `primary`.
+ * @param exceptions The most significant bits of exceptions, each one is always > 0.
+ * @param b_bits The number of bits used for packing numbers into `primary`.
+ */
+void updatePFD(int32_t *primary, std::vector<int32_t> &index_gaps, std::vector<int32_t> &exceptions, uint32_t b_bits, const int32_t min_element)
 {
 	int i_exception = 0;
 	int exception_pos = 0;
 	assert(index_gaps.size() == exceptions.size());
 	int32_t index = 0;
 	int n = index_gaps.size();
-	for (int i = 0; i < n; ++i){
+	for (int i = 0; i < n; ++i)
+	{
 		auto index_diff = index_gaps[i];
 		uint32_t ex = exceptions[i];
 		index += index_diff;
 		primary[index] |= (exceptions[i] << b_bits);
 	}
-	for (int i = 0; i < 512; ++i){
+	for (int i = 0; i < 512; ++i)
+	{
 		primary[i] += min_element;
 	}
 }
@@ -173,7 +137,6 @@ size_t PfdParsePrimaryBlock(uint64_t *buf, const size_t max_elem, const int n_in
 	// std::cout << "i: " << i << '\n';
 	return buf_offset;
 }
-
 
 
 /**
