@@ -593,6 +593,9 @@ void bustools_decompress(const Bustools_opt &opt)
 		return;
 	}
 
+	std::vector<uint32_t> chunk_sizes(comp_header.n_chunks+1);
+	in.read((char*)&chunk_sizes[0], (comp_header.n_chunks + 1) * sizeof(uint32_t));
+
 	writeHeader(outf, comp_header.extra_header);
 	BUSData *busdata = new BUSData[comp_header.chunk_size];
 
