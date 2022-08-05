@@ -637,6 +637,71 @@ void compress_flags(BUSData const *const rows, const int row_count, std::ostream
 	flush_fibonacci(buf, bit_pos, of);
 }
 
+template <typename T>
+void compress_barcode_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+{
+	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
+	T fibonacci_buf[fibonacci_bufsize];
+	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
+	uint32_t bitpos{0};
+	for (int i = 0; i < row_count; ++i)
+	{
+		fiboEncode<fibonacci_bufsize>(rows[i].barcode + 1, fibonacci_buf, bitpos, of);
+	}
+	flush_fibonacci(fibonacci_buf, bitpos, of);
+}
+template <typename T>
+void compress_UMI_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+{
+	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
+	T fibonacci_buf[fibonacci_bufsize];
+	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
+	uint32_t bitpos{0};
+	for (int i = 0; i < row_count; ++i)
+	{
+		fiboEncode<fibonacci_bufsize>(rows[i].UMI + 1, fibonacci_buf, bitpos, of);
+	}
+	flush_fibonacci(fibonacci_buf, bitpos, of);
+}
+template <typename T>
+void compress_EC_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+{
+	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
+	T fibonacci_buf[fibonacci_bufsize];
+	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
+	uint32_t bitpos{0};
+	for (int i = 0; i < row_count; ++i)
+	{
+		fiboEncode<fibonacci_bufsize>(rows[i].ec + 1, fibonacci_buf, bitpos, of);
+	}
+	flush_fibonacci(fibonacci_buf, bitpos, of);
+}
+template <typename T>
+void compress_count_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+{
+	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
+	T fibonacci_buf[fibonacci_bufsize];
+	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
+	uint32_t bitpos{0};
+	for (int i = 0; i < row_count; ++i)
+	{
+		fiboEncode<fibonacci_bufsize>(rows[i].count, fibonacci_buf, bitpos, of);
+	}
+	flush_fibonacci(fibonacci_buf, bitpos, of);
+}
+template <typename T>
+void compress_flags_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+{
+	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
+	T fibonacci_buf[fibonacci_bufsize];
+	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
+	uint32_t bitpos{0};
+	for (int i = 0; i < row_count; ++i)
+	{
+		fiboEncode<fibonacci_bufsize>(rows[i].flags + 1, fibonacci_buf, bitpos, of);
+	}
+	flush_fibonacci(fibonacci_buf, bitpos, of);
+}
 void bustools_compress(const Bustools_opt &opt)
 {
 	BUSHeader h;
