@@ -5,6 +5,7 @@
 #include <vector>
 #include <array>
 #include <stdint.h>
+#include <zlib.h>
 
 #include "Common.hpp"
 #include "BUSData.h"
@@ -637,6 +638,101 @@ void compress_flags(BUSData const *const rows, const int row_count, std::ostream
 	flush_fibonacci(buf, bit_pos, of);
 }
 
+template <int comp_level>
+void compress_barcode_zlib(BUSData const *const rows, const int row_count, std::ostream &of)
+{
+	uint64_t *buf = new uint64_t[row_count];
+	for (int i = 0; i < row_count; ++i)
+	{
+		buf[i] = rows[i].barcode;
+	}
+	uLongf src_len = row_count * sizeof(uint64_t);
+	uLongf dest_len = row_count * sizeof(uint64_t);
+	Bytef *dest = new Bytef[dest_len];
+	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
+	if (status == Z_OK)
+		of.write((char *)dest, dest_len * sizeof(Bytef));
+	else
+	{
+		std::cerr << "zlib err: " << status << '\n';
+	}
+}
+
+template <int comp_level>
+void compress_UMI_zlib(BUSData const *const rows, const int row_count, std::ostream &of)
+{
+	uint64_t *buf = new uint64_t[row_count];
+	for (int i = 0; i < row_count; ++i)
+	{
+		buf[i] = rows[i].UMI;
+	}
+	uLongf src_len = row_count * sizeof(uint64_t);
+	uLongf dest_len = row_count * sizeof(uint64_t);
+	Bytef *dest = new Bytef[dest_len];
+	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
+	if (status == Z_OK)
+		of.write((char *)dest, dest_len * sizeof(Bytef));
+	else
+	{
+		std::cerr << "zlib err: " << status << '\n';
+	}
+}
+
+template <int comp_level>
+void compress_EC_zlib(BUSData const * const rows, const int row_count, std::ostream &of)
+{
+	int32_t *buf = new int32_t[row_count];
+	for (int i = 0; i < row_count; ++i){
+		buf[i] = rows[i].ec;
+	}
+	uLongf src_len = row_count * sizeof(int32_t);
+	uLongf dest_len = row_count * sizeof(int32_t);
+	Bytef *dest = new Bytef[dest_len];
+	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
+	if (status == Z_OK)
+		of.write((char *)dest, dest_len * sizeof(Bytef));
+	else
+	{
+		std::cerr << "zlib err: " << status << '\n';
+	}
+}
+
+template<int comp_level>
+void compress_count_zlib(BUSData const * const rows, const int row_count, std::ostream &of)
+{
+	uint32_t *buf = new uint32_t[row_count];
+	for (int i = 0; i < row_count; ++i){
+		buf[i] = rows[i].count;
+	}
+	uLongf src_len = row_count * sizeof(uint32_t);
+	uLongf dest_len = row_count * sizeof(uint32_t);
+	Bytef *dest = new Bytef[dest_len];
+	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
+	if (status == Z_OK)
+		of.write((char *)dest, dest_len * sizeof(Bytef));
+	else
+	{
+		std::cerr << "zlib err: " << status << '\n';
+	}
+}
+template<int comp_level>
+void compress_flags_zlib(BUSData const * const rows, const int row_count, std::ostream &of)
+{
+	uint32_t *buf = new uint32_t[row_count];
+	for (int i = 0; i < row_count; ++i){
+		buf[i] = rows[i].flags;
+	}
+	uLongf src_len = row_count * sizeof(uint32_t);
+	uLongf dest_len = row_count * sizeof(uint32_t);
+	Bytef *dest = new Bytef[dest_len];
+	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
+	if (status == Z_OK)
+		of.write((char *)dest, dest_len * sizeof(Bytef));
+	else
+	{
+		std::cerr << "zlib err: " << status << '\n';
+	}
+}
 template <typename T>
 void compress_barcode_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
 {

@@ -5,6 +5,7 @@
 #include <vector>
 #include <array>
 #include <stdint.h>
+#include <zlib.h>
 
 #include <assert.h>
 #include "Common.hpp"
@@ -480,6 +481,86 @@ void decompress_flags_fibo(char *BUF, BUSData *rows, const size_t row_count, con
 	}
 }
 
+void decompress_barcode_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	uint64_t *buf = new uint64_t[row_count];
+	uLongf dest_len = row_count * sizeof(uint64_t);
+	uLong src_len = buf_size;
+	int status = uncompress2((Bytef *)buf, &dest_len, (Bytef *)BUF, &src_len);
+	if (status != Z_OK)
+	{
+		std::cerr << "zlib error: " << status << "\n";
+	}
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].barcode = buf[i];
+	}
+}
+
+
+void decompress_UMI_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	uint64_t *buf = new uint64_t[row_count];
+	uLongf dest_len = row_count * sizeof(uint64_t);
+	uLong src_len = buf_size;
+	int status = uncompress2((Bytef *)buf, &dest_len, (Bytef *)BUF, &src_len);
+	if (status != Z_OK)
+	{
+		std::cerr << "zlib error: " << status << "\n";
+	}
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].UMI = buf[i];
+	}
+}
+
+void decompress_EC_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	int32_t *buf = new int32_t[row_count];
+	uLongf dest_len = row_count * sizeof(int32_t);
+	uLong src_len = buf_size;
+	int status = uncompress2((Bytef *)buf, &dest_len, (Bytef *)BUF, &src_len);
+	if (status != Z_OK)
+	{
+		std::cerr << "zlib error: " << status << "\n";
+	}
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].ec = buf[i];
+	}
+}
+
+void decompress_count_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	uint32_t *buf = new uint32_t[row_count];
+	uLongf dest_len = row_count * sizeof(uint32_t);
+	uLong src_len = buf_size;
+	int status = uncompress2((Bytef *)buf, &dest_len, (Bytef *)BUF, &src_len);
+	if (status != Z_OK)
+	{
+		std::cerr << "zlib error: " << status << "\n";
+	}
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].count = buf[i];
+	}
+}
+
+void decompress_flags_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	uint32_t *buf = new uint32_t[row_count];
+	uLongf dest_len = row_count * sizeof(uint32_t);
+	uLong src_len = buf_size;
+	int status = uncompress2((Bytef *)buf, &dest_len, (Bytef *)BUF, &src_len);
+	if (status != Z_OK)
+	{
+		std::cerr << "zlib error: " << status << "\n";
+	}
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].flags = buf[i];
+	}
+}
 void bustools_decompress(const Bustools_opt &opt)
 {
 	compressed_BUSHeader comp_header;
