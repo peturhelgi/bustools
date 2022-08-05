@@ -410,6 +410,75 @@ void decompress_flags(char *BUF, BUSData *rows, const size_t row_count, const si
 	}
 }
 
+template <typename T>
+void decompress_barcode_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	T *fibonacci_buf = (T *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+	
+	for (int i = 0; i < row_count; ++i){
+		rows[i].barcode = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
+	}
+}
+template <typename T>
+void decompress_UMI_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	T *fibonacci_buf = (T *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].UMI = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
+	}
+}
+template <typename T>
+void decompress_EC_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	T *fibonacci_buf = (T *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].ec = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
+	}
+}
+template <typename T>
+void decompress_count_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	T *fibonacci_buf = (T *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].count = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset);
+	}
+}
+template <typename T>
+void decompress_flags_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+{
+	T *fibonacci_buf = (T *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
+	uint32_t bitpos{0},
+		i_fibo{0},
+		buf_offset{0};
+
+	for (int i = 0; i < row_count; ++i)
+	{
+		rows[i].flags = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
+	}
+}
 
 void bustools_decompress(const Bustools_opt &opt)
 {
