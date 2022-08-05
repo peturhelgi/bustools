@@ -969,30 +969,13 @@ void bustools_compress(const Bustools_opt &opt)
 			last_row_count = row_count;
 			++block_counter;
 
-			pos_start = pos_end;
-			compress_barcodes(p, row_count, outf);
-			pos_end = outf.tellp();
-			col_sizes.push_back(pos_end - pos_start);
-
-			pos_start = pos_end;
-			compress_umis(p, row_count, outf);
-			pos_end = outf.tellp();
-			col_sizes.push_back(pos_end - pos_start);
-
-			pos_start = pos_end;
-			compress_ecs(p, row_count, outf);
-			pos_end = outf.tellp();
-			col_sizes.push_back(pos_end - pos_start);
-
-			pos_start = pos_end;
-			compress_counts(p, row_count, outf);
-			pos_end = outf.tellp();
-			col_sizes.push_back(pos_end - pos_start);
-
-			pos_start = pos_end;
-			compress_flags(p, row_count, outf);
-			pos_end = outf.tellp();
-			col_sizes.push_back(pos_end - pos_start);
+			for (int i_col = 0; i_col < 5; ++i_col)
+			{
+				pos_start = pos_end;
+				compressors[i_col](p, row_count, outf);
+				pos_end = outf.tellp();
+				col_sizes.push_back(pos_end - pos_start);
+			}
 		}
 
 		outHeader.write((char *)&col_sizes[0], col_sizes.size() * sizeof(pos_start));
