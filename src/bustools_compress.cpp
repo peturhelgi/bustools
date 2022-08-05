@@ -706,6 +706,141 @@ void compress_flags_fibo(BUSData const *const rows, const int row_count, std::os
 	}
 	flush_fibonacci(fibonacci_buf, bitpos, of);
 }
+
+typedef void (*compress_ptr)(BUSData const *, const int, std::ostream &);
+
+compress_ptr select_zlib_compressor(int col, int lvl)
+{
+	switch (lvl)
+	{
+	case 1:
+	{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<1>,
+			&compress_UMI_zlib<1>,
+			&compress_EC_zlib<1>,
+			&compress_count_zlib<1>,
+			&compress_flags_zlib<1>};
+		return zlibs[col];
+		break;
+	}
+	case 2:
+	{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<2>,
+			&compress_UMI_zlib<2>,
+			&compress_EC_zlib<2>,
+			&compress_count_zlib<2>,
+			&compress_flags_zlib<2>};
+		return zlibs[col];
+		break;
+	}
+	case 3:
+		{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<3>,
+			&compress_UMI_zlib<3>,
+			&compress_EC_zlib<3>,
+			&compress_count_zlib<3>,
+			&compress_flags_zlib<3>};
+		return zlibs[col];
+		break;
+	}
+		break;
+
+	case 4:
+		{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<4>,
+			&compress_UMI_zlib<4>,
+			&compress_EC_zlib<4>,
+			&compress_count_zlib<4>,
+			&compress_flags_zlib<4>};
+		return zlibs[col];
+		break;
+	}
+		break;
+
+	case 5:
+		{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<5>,
+			&compress_UMI_zlib<5>,
+			&compress_EC_zlib<5>,
+			&compress_count_zlib<5>,
+			&compress_flags_zlib<5>};
+		return zlibs[col];
+		break;
+	}
+		break;
+
+	case 6:
+		{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<6>,
+			&compress_UMI_zlib<6>,
+			&compress_EC_zlib<6>,
+			&compress_count_zlib<6>,
+			&compress_flags_zlib<6>};
+		return zlibs[col];
+		break;
+	}
+		break;
+
+	case 7:
+		{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<7>,
+			&compress_UMI_zlib<7>,
+			&compress_EC_zlib<7>,
+			&compress_count_zlib<7>,
+			&compress_flags_zlib<7>};
+		return zlibs[col];
+		break;
+	}
+		break;
+
+	case 8:
+		{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<8>,
+			&compress_UMI_zlib<8>,
+			&compress_EC_zlib<8>,
+			&compress_count_zlib<8>,
+			&compress_flags_zlib<8>};
+		return zlibs[col];
+		break;
+	}
+		break;
+
+	case 9:
+		{
+		compress_ptr zlibs[5]{
+			&compress_barcode_zlib<9>,
+			&compress_UMI_zlib<9>,
+			&compress_EC_zlib<9>,
+			&compress_count_zlib<9>,
+			&compress_flags_zlib<9>};
+		return zlibs[col];
+		break;
+	}
+		break;
+
+	default:
+		{
+			return nullptr;
+		}
+	}
+}
+
+uint32_t get_n_rows(std::istream &inf){
+	auto header_end = inf.tellg();
+	inf.seekg(0, std::ios::end);
+	auto file_end = inf.tellg();
+	inf.seekg(header_end, std::ios::beg);
+	return (file_end - header_end) / 32;
+}
+
 void bustools_compress(const Bustools_opt &opt)
 {
 	BUSHeader h;
@@ -738,6 +873,34 @@ void bustools_compress(const Bustools_opt &opt)
 	}
 
 	std::ostream outf(buf);
+	bool fibonaccis[5] = {
+		((opt.fibo_compress >> 4) & 1) > 0,
+		((opt.fibo_compress >> 3) & 1) > 0,
+		((opt.fibo_compress >> 2) & 1) > 0,
+		((opt.fibo_compress >> 1) & 1) > 0,
+		((opt.fibo_compress >> 0) & 1) > 0,
+	};
+
+	compress_ptr compressors[5]{
+		fibonaccis[0] ? &compress_barcode_fibo<FIBO_t> : &compress_barcodes,
+		fibonaccis[1] ? &compress_UMI_fibo<FIBO_t> : funcs[false && opt.lossy_umi],
+		fibonaccis[2] ? &compress_EC_fibo<FIBO_t> : &compress_ecs,
+		fibonaccis[3] ? &compress_count_fibo<FIBO_t> : &compress_counts,
+		fibonaccis[4] ? &compress_flags_fibo<FIBO_t> : &compress_flags,
+	};
+
+	uint32_t zlib_select = 0;
+	for (int i = 0; i < 5; ++i)
+	{
+		compress_ptr compressor = select_zlib_compressor(i, opt.z_levels[i]);
+		if (compressor != nullptr)
+		{
+			std::cout << "Using zlib for column " << i << '\n';
+			compressors[i] = select_zlib_compressor(i, opt.z_levels[i]);
+			zlib_select |= (1 << (4-i));
+		}
+	}
+
 
 	// TODO: should we really allow multiple files?
 	for (const auto &infn : opt.files)
@@ -756,9 +919,12 @@ void bustools_compress(const Bustools_opt &opt)
 		std::istream in(inbuf);
 
 		parseHeader(in, h);
+
 		compressed_BUSHeader comp_h;
 		comp_h.chunk_size = chunk_size;
 		comp_h.lossy_umi = false && opt.lossy_umi;
+		comp_h.fibo_zlib_compress = (opt.fibo_compress & ((1 << 5) - 1)) << 5;
+		comp_h.fibo_zlib_compress |= zlib_select;
 
 		comp_h.extra_header.text = h.text;
 		comp_h.extra_header.version = h.version;
