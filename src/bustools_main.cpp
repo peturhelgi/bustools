@@ -122,19 +122,39 @@ void parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
 
 void parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
 {
-  const char *opt_string = "N:Lo:pT:";
+  const char *opt_string = "N:Lo:pT:z:f:";
   static struct option long_options[] = {
       {"chunk-size", required_argument, 0, 'N'},
       {"lossy-umi", no_argument, 0, 'L'},
       {"output", required_argument, 0, 'o'},
       {"pipe", no_argument, 0, 'p'},
       {"temp", required_argument, 0, 'T'},
+      {"zlib", required_argument, 0, 'z'},
+      {"fibonacci", required_argument, 0, 'f'},
       {0, 0, 0, 0}};
   int option_index = 0, c;
+
   while ((c = getopt_long(argc, argv, opt_string, long_options, &option_index)) != -1)
   {
     switch (c)
     {
+    case 'z':
+    {
+      std::string s(optarg);
+      for (int i = 0; i < s.length(); ++i)
+      {
+        opt.z_levels[i] = (s[i] - '0');
+      }
+      break;
+    }
+    case 'f':
+    {
+      std::string s(optarg);
+      for (int i = 0; i < s.length(); ++i){
+        opt.fibo_compress |= (s[i] == '1') << (4-i);
+      }
+      break;
+    }
     case 'N':
       opt.chunk_size = atoi(optarg);
       break;
@@ -976,6 +996,21 @@ bool check_ProgramOptions_compress(Bustools_opt &opt)
 {
   // TODO: Tailor this method to compression
   bool ret = true;
+  const char* col_names[5] = {"barcode", "UMI", "ec", "count", "flags"};
+  for (int i = 0; i < 5; ++i){
+    if (opt.z_levels[i] > 0 && (opt.fibo_compress >> (4-i) & 1))
+    {
+      std::cerr << "Cannot compress column " << col_names[i]
+      << " with fibonacci and zlib.\n";
+      ret = false;
+    }
+    if(opt.z_levels[i] < 0 || opt.z_levels[i] > 9){
+      std::cerr << "Invalid compression level " << opt.z_levels[i]
+                << " for column " << col_names[i] << '\n';
+      ret = false;
+    }
+  }
+
   ret = check_ProgramOptions_sort(opt);
   return ret;
 }
