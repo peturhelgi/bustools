@@ -34,6 +34,7 @@ struct compressed_BUSHeader
 	uint32_t n_chunks;
 	uint32_t last_chunk;
 	bool lossy_umi;
+	uint32_t fibo_zlib_compress = 0;
 	BUSHeader extra_header;
 	compressed_BUSHeader() : chunk_size(0), n_chunks(0), last_chunk(0), lossy_umi(0) {}
 };

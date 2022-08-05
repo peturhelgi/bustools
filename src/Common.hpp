@@ -77,6 +77,8 @@ struct Bustools_opt {
   // Compression opts
   int chunk_size = 100000;
   bool lossy_umi = 0;
+  uint16_t fibo_compress = 0;
+  int z_levels[5]{0,0,0,0,0};
 
   Bustools_opt() : threads(1), max_memory(1ULL<<32), type(0),
     threshold(0), start(-1), end(-1)  {}
