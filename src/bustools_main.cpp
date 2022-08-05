@@ -85,12 +85,22 @@ std::vector<std::string> parseList(const std::string &s, const std::string &sep 
   return ret;
 }
 
-void parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
-  const char *opt_string = "o:T:p";
+/**
+ * @brief Parse command line arguments for bustools inflate.
+ * 
+ * @param argc 
+ * @param argv 
+ * @param opt 
+ * @return bool true iff requested from the command line.
+ */
+bool parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
+  const char *opt_string = "o:T:ph";
+  bool print_usage = false;
   static struct option long_options[] = {
       {"output", required_argument, 0, 'o'},
       {"temp", required_argument, 0, 'T'},
       {"pipe", no_argument, 0, 'p'},
+      {"help", no_argument, 0, 'h'},
       {0, 0, 0, 0},
   };
   int option_index = 0, c;
@@ -106,6 +116,9 @@ void parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
       case 'T':
         opt.temp_files = optarg;
         break;
+      case 'h':
+        print_usage = true;
+        break;
       default:
         break;
     }
@@ -118,11 +131,20 @@ void parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
   {
     opt.stream_in = true;
   }
+  return print_usage;
 }
 
-void parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
+/**
+ * @brief Parse command line arguments for bustools compress.
+ *
+ * @param argc
+ * @param argv
+ * @param opt
+ * @return bool true iff requested from the command line.
+ */
+bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
 {
-  const char *opt_string = "N:Lo:pT:z:f:";
+  const char *opt_string = "N:Lo:pT:z:f:h";
   static struct option long_options[] = {
       {"chunk-size", required_argument, 0, 'N'},
       {"lossy-umi", no_argument, 0, 'L'},
@@ -131,8 +153,10 @@ void parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
       {"temp", required_argument, 0, 'T'},
       {"zlib", required_argument, 0, 'z'},
       {"fibonacci", required_argument, 0, 'f'},
+      {"help", no_argument, 0, 'h'},
       {0, 0, 0, 0}};
   int option_index = 0, c;
+  bool print_usage = false;
 
   while ((c = getopt_long(argc, argv, opt_string, long_options, &option_index)) != -1)
   {
@@ -170,6 +194,9 @@ void parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
     case 'L':
       opt.lossy_umi = true;
       break;
+    case 'h':
+      print_usage = true;
+      break;
     default:
       break;
     }
@@ -182,6 +209,7 @@ void parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
   {
     opt.stream_in = true;
   }
+  return print_usage;
 }
 
 void parse_ProgramOptions_sort(int argc, char **argv, Bustools_opt& opt) {
@@ -1982,6 +2010,7 @@ void Bustools_compress_Usage() {
             << "Non-zero values will compress the corresponding column using zlib with that level. For shorter strings than 5, \"0\" is assumed for the remaining columns." << std::endl
             << "-f, --fibonacci SELECT         SELECT is a string of digits. If a digit is \"1\", the corresponding "
             << "column uses fibonacci encoding only. For shorter strings than 5, \"0\" is assumed for the remaining columns." << std::endl
+            << "-h, --help                     Print this message and exit." << std::endl
             << std::endl;
 }
 
@@ -1992,6 +2021,7 @@ void Bustools_inflate_Usage() {
             << "-p, --pipe               Write to standard output." << std::endl
             << "-T, --temp TMP           Write temporary files to TMP when streaming in/out." << std::endl
             << "-o, --output OUTPUT      File for inflated output." << std::endl
+            << "-h, --help               Print this message and exit." << std::endl
             << std::endl;
 }
 
@@ -2211,8 +2241,11 @@ int main(int argc, char **argv) {
         Bustools_compress_Usage();
         exit(0);
       }
-      parse_ProgramOptions_compress(argc - 1, argv + 1, opt);
-      if (check_ProgramOptions_compress(opt)){
+      if(parse_ProgramOptions_compress(argc - 1, argv + 1, opt)){
+        Bustools_compress_Usage();
+        exit(0);
+      }
+      else if (check_ProgramOptions_compress(opt)){
           bustools_compress(opt);
         exit(0);
       } else {
@@ -2220,12 +2253,16 @@ int main(int argc, char **argv) {
         exit(1);
       }
     } else if (cmd == "decompress" || cmd == "inflate"){
+
         if(disp_help){
           Bustools_inflate_Usage();
           exit(0);
         }
-        parse_ProgramOptions_inflate(argc -1, argv + 1, opt);
-        if(check_ProgramOptions_inflate(opt)){
+        if(parse_ProgramOptions_inflate(argc -1, argv + 1, opt)){
+          Bustools_inflate_Usage();
+          exit(0);
+        }
+        else if(check_ProgramOptions_inflate(opt)){
           bustools_decompress(opt);
           exit(0);
         }
