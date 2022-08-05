@@ -950,8 +950,6 @@ void bustools_compress(const Bustools_opt &opt)
 			delete[] block_sizes;
 		}
 
-		writeCompressedHeader(outf, comp_h);
-
 		uint64_t block_counter = 0;
 		size_t last_row_count = 0;
 
@@ -961,6 +959,9 @@ void bustools_compress(const Bustools_opt &opt)
 				 pos_end = outf.tellp();
 		std::vector<uint32_t> col_sizes;
 
+		std::vector<uint32_t> chunk_sizes;
+		uint32_t chunk_start, chunk_end;
+
 		while (in.good())
 		{
 			in.read((char *)p, chunk_size * ROW_SIZE);
@@ -969,6 +970,7 @@ void bustools_compress(const Bustools_opt &opt)
 			last_row_count = row_count;
 			++block_counter;
 
+			chunk_start = outf.tellp();
 			for (int i_col = 0; i_col < 5; ++i_col)
 			{
 				pos_start = pos_end;
@@ -976,6 +978,9 @@ void bustools_compress(const Bustools_opt &opt)
 				pos_end = outf.tellp();
 				col_sizes.push_back(pos_end - pos_start);
 			}
+			chunk_end = outf.tellp();
+			chunk_sizes.push_back(chunk_end - chunk_start);
+			chunk_start = chunk_end;
 		}
 
 		outHeader.write((char *)&col_sizes[0], col_sizes.size() * sizeof(pos_start));
@@ -986,6 +991,7 @@ void bustools_compress(const Bustools_opt &opt)
 		comp_h.n_chunks = block_counter - 1;
 
 		writeCompressedHeader(outHeader, comp_h);
+		outHeader.write((char *)&chunk_sizes[0], sizeof(chunk_sizes[0]) * block_counter);
 	}
 	delete[] p;
 }
