@@ -599,17 +599,14 @@ void bustools_decompress(const Bustools_opt &opt)
 	writeHeader(outf, comp_header.extra_header);
 	BUSData *busdata = new BUSData[comp_header.chunk_size];
 
-
 	const auto data_pos = in.tellg();
-	int n_decompressors = 5;
+	const int n_decompressors = 5;
 	uint32_t n_cols = n_decompressors * (comp_header.n_chunks + 1);
 	int32_t offset = n_cols * sizeof(uint32_t);
 
-	in.seekg(-offset, std::ios_base::end);
-
 	std::vector<uint32_t> col_sizes(n_cols);
+	in.seekg(-offset, std::ios_base::end);
 	in.read((char *)&col_sizes[0], offset);
-
 
 	auto col_size_it = col_sizes.begin();
 	const auto col_size_end = col_sizes.end();

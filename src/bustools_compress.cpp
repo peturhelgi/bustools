@@ -11,6 +11,7 @@
 #include "BUSData.h"
 #include "bustools_compress.h"
 
+constexpr size_t cache_size = 256;
 
 template <typename T>
 inline void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
@@ -21,10 +22,6 @@ inline void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
 		of.write((char *)&element, sizeof(element));
 	}
 }
-constexpr size_t cache_size = 128;
-
-
-
 
 /**
  * @brief Encode `num` using fibonacci encoding into buf, starting at bitpos.
@@ -390,7 +387,7 @@ void lossless_compress_umis(BUSData const *const rows, const int row_count, std:
 
 void lossy_compress_umis(BUSData const *const rows, const int row_count, std::ostream &of)
 {
-	std::cout << "BEWARE: Lossy compression\n";
+	std::cerr << "BEWARE: Lossy compression\n";
 
 }
 
@@ -641,6 +638,7 @@ void compress_flags_zlib(BUSData const * const rows, const int row_count, std::o
 		std::cerr << "zlib err: " << status << '\n';
 	}
 }
+
 template <typename T>
 void compress_barcode_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
 {
