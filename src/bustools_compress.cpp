@@ -855,24 +855,29 @@ void bustools_compress(const Bustools_opt &opt)
 	{
 		std::cerr << "Lossy UMI compression has not been implemented, using lossless instead." << std::endl;
 	}
-	void (*compress_umis)(BUSData const *, const int, std::ostream &) = funcs[0];
 
 	BUSData *p = new BUSData[chunk_size];
 
 	std::ofstream of;
 	std::streambuf *buf = nullptr;
+	std::streambuf *headerBuf = nullptr;
 
 	if (opt.stream_out)
 	{
 		buf = std::cout.rdbuf();
+		of.open(opt.temp_files);
+		headerBuf = of.rdbuf();
 	}
 	else
 	{
 		of.open(opt.output);
 		buf = of.rdbuf();
+		headerBuf = buf;
 	}
 
 	std::ostream outf(buf);
+	std::ostream outHeader(headerBuf);
+
 	bool fibonaccis[5] = {
 		((opt.fibo_compress >> 4) & 1) > 0,
 		((opt.fibo_compress >> 3) & 1) > 0,
@@ -907,6 +912,8 @@ void bustools_compress(const Bustools_opt &opt)
 	{
 		std::streambuf *inbuf;
 		std::ifstream inf;
+		uint32_t n_rows = 0;
+
 		if (opt.stream_in)
 		{
 			inbuf = std::cin.rdbuf();
@@ -930,6 +937,18 @@ void bustools_compress(const Bustools_opt &opt)
 		comp_h.extra_header.version = h.version;
 		comp_h.extra_header.bclen = h.bclen;
 		comp_h.extra_header.umilen = h.umilen;
+		writeCompressedHeader(outHeader, comp_h);
+
+		auto headerLen = outHeader.tellp();
+		if (!opt.stream_in)
+		{
+			n_rows = get_n_rows(in);
+			size_t n_blocks = (n_rows - 1) / chunk_size + 1;
+			size_t last_chunk_size = n_rows % chunk_size ?: chunk_size;
+			uint32_t *block_sizes = new uint32_t[n_blocks];
+			outHeader.write((char *)block_sizes, sizeof(uint32_t) * n_blocks);
+			delete[] block_sizes;
+		}
 
 		writeCompressedHeader(outf, comp_h);
 
@@ -976,14 +995,14 @@ void bustools_compress(const Bustools_opt &opt)
 			col_sizes.push_back(pos_end - pos_start);
 		}
 
-		outf.write((char *)&col_sizes[0], col_sizes.size() * sizeof(pos_start));
-		outf.seekp(0, std::ios_base::beg);
+		outHeader.write((char *)&col_sizes[0], col_sizes.size() * sizeof(pos_start));
+		outHeader.seekp(0, std::ios_base::beg);
 
 		// Update the compressed header post compression.
 		comp_h.last_chunk = last_row_count;
 		comp_h.n_chunks = block_counter - 1;
 
-		writeCompressedHeader(outf, comp_h);
+		writeCompressedHeader(outHeader, comp_h);
 	}
 	delete[] p;
 }
