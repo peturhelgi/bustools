@@ -1973,8 +1973,15 @@ void Bustools_compress_Usage() {
             << "Note: BUS file should be sorted" << std::endl
             << std::endl
             << "Options: " << std::endl
-            << "-N, --chunk-size      Number of rows to compress as a single block." << std::endl
-            << "-L, --lossy-umi       Allow lossy compression over UMIs. Each UMI will be renamed for minimal compression." << std::endl
+            << "-N, --chunk-size CHUNK_SIZE    Number of rows to compress as a single block." << std::endl
+            << "-L, --lossy-umi                Allow lossy compression over UMIs. Each UMI will be renamed for minimal compression." << std::endl
+            << "-o, --output OUTPUT            Write compressed file to OUTPUT." << std::endl
+            << "-p, --pipe                     Write to standard output." << std::endl
+            << "-T, --temp TMP                 Write temporary files to TMP when streaming in/out." << std::endl
+            << "-z, --zlib LEVELS              LEVELS is a string of digits. Only the first 5 digits are considered. "
+            << "Non-zero values will compress the corresponding column using zlib with that level. For shorter strings than 5, \"0\" is assumed for the remaining columns." << std::endl
+            << "-f, --fibonacci SELECT         SELECT is a string of digits. If a digit is \"1\", the corresponding "
+            << "column uses fibonacci encoding only. For shorter strings than 5, \"0\" is assumed for the remaining columns." << std::endl
             << std::endl;
 }
 
