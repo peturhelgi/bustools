@@ -24,54 +24,8 @@ inline void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
 constexpr size_t cache_size = 128;
 
 
-template <size_t bufsize>
-void fiboEncode8(const uint64_t num, unsigned char buf[24], uint32_t &bitpos, std::ostream &obuf)
-{
-	constexpr uint32_t word_size = sizeof(unsigned char) * 8;
-	constexpr uint32_t max_bitpos = bufsize * word_size;
 
-	const uint32_t curr_byte_pos = bitpos / word_size;
 
-	const auto fibo_begin = fibo64.begin();
-	const auto fibo_end = fibo64.end();
-
-	uint64_t remainder = num;
-
-	// the ith fibonacci number is the largest fibo not greater than remainder
-	auto i = std::upper_bound(fibo_begin, fibo_end, remainder) - 1;
-
-	const uint32_t n_bits = (i - fibo_begin) + 2;
-	uint32_t next_bit_pos = bitpos + n_bits - 1,
-			 bit_offset = next_bit_pos % word_size,
-			 buf_offset = (next_bit_pos / word_size) % bufsize;
-
-	// Set the stop bit.
-	buf[buf_offset] |= shifted_8[word_size - 1 - bit_offset];
-
-	i = fibo_end;
-	while (remainder > 0)
-	{
-		i = std::upper_bound(fibo_begin, i, remainder) - 1;
-		next_bit_pos = bitpos + (i - fibo_begin);
-		buf_offset = (next_bit_pos / word_size) % bufsize;
-		bit_offset = next_bit_pos % word_size;
-
-		buf[buf_offset] |= shifted_8[word_size - 1 - bit_offset];
-		remainder -= *i;
-	}
-
-	// n_elems is the number of saturated elements in buf.
-	int n_elems = (bitpos + n_bits) / word_size - curr_byte_pos;
-	bitpos = (bitpos + n_bits) % max_bitpos;
-
-	// write fibo-encoded values to output buffer for concentrated elements in buf.
-	for (int p = 0; p < n_elems; ++p)
-	{
-		auto &elem = buf[(curr_byte_pos + p) % bufsize];
-		obuf.write((char *)&elem, sizeof(elem));
-		elem = 0;
-	}
-}
 /**
  * @brief Encode `num` using fibonacci encoding into buf, starting at bitpos.
  * @pre the next 128 bits in `buf` are 0 starting from `bitpos`, and wrapped around 192.
@@ -90,57 +44,12 @@ void fiboEncode8(const uint64_t num, unsigned char buf[24], uint32_t &bitpos, st
  * @param bitpos the bit position in buf where the fibo encoding of num starts.
  * @param obuf the ostream buffer to write to.
  */
-void fiboEncode64(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostream &obuf)
+template <size_t bufsize, typename BUF_t>
+void fiboEncode(const uint64_t num, BUF_t *buf, uint32_t &bitpos, std::ostream &obuf)
 {
-	constexpr uint32_t max_bitpos = 3 * 64;
-	const uint32_t curr_byte_pos = bitpos / 64;
-
-	const auto fibo_begin = fibo64.begin();
-	const auto fibo_end = fibo64.end();
-
-	uint64_t remainder = num;
-
-	// the ith fibonacci number is the largest fibo not greater than remainder
-	auto i = std::upper_bound(fibo_begin, fibo_end, remainder) - 1;
-
-	const uint32_t n_bits = (i - fibo_begin) + 2;
-	uint32_t next_bit_pos = bitpos + n_bits - 1,
-			 bit_offset = next_bit_pos % 64,
-			 buf_offset = (next_bit_pos / 64) % 3;
-
-	// Set the stop bit.
-	buf[buf_offset] |= 1ULL << (63 - bit_offset);
-
-	i = fibo_end;
-	while (remainder > 0)
-	{
-		i = std::upper_bound(fibo_begin, i, remainder) - 1;
-		next_bit_pos = bitpos + (i - fibo_begin);
-		buf_offset = (next_bit_pos / 64) % 3;
-		bit_offset = next_bit_pos % 64;
-
-		buf[buf_offset] |= 1ULL << (63 - bit_offset);
-		remainder -= *i;
-	}
-
-	// n_elems is the number of saturated elements in buf.
-	int n_elems = (bitpos + n_bits) / 64 - curr_byte_pos;
-	bitpos = (bitpos + n_bits) % max_bitpos;
-
-	// write fibo-encoded values to output buffer for concentrated elements in buf.
-	for (int p = 0; p < n_elems; ++p)
-	{
-		auto &elem = buf[(curr_byte_pos + p) % 3];
-		obuf.write((char *)&elem, sizeof(elem));
-		elem = 0;
-	}
-}
-
-template <size_t buf_size>
-void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostream &obuf)
-{
-	constexpr uint32_t word_size = sizeof(uint64_t) * 8;
-	constexpr uint32_t max_bitpos = buf_size * word_size;
+	constexpr uint32_t word_size = sizeof(BUF_t) * 8;
+	constexpr uint32_t max_bitpos = bufsize * word_size;
+	constexpr BUF_t ONE{1};
 
 	const uint32_t curr_byte_pos = bitpos / word_size;
 
@@ -155,20 +64,20 @@ void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostr
 	const uint32_t n_bits = (i - fibo_begin) + 2;
 	uint32_t next_bit_pos = bitpos + n_bits - 1,
 			 bit_offset = next_bit_pos % word_size,
-			 buf_offset = (next_bit_pos / word_size) % buf_size;
+			 buf_offset = (next_bit_pos / word_size) % bufsize;
 
 	// Set the stop bit.
-	buf[buf_offset] |= shifted_64[word_size - 1 - bit_offset];
+	buf[buf_offset] |= shifted_64[word_size - 1 - bit_offset]; // ONE << (word_size - 1 - bit_offset);
 
-	i = fibo_end;
+	++i;
 	while (remainder > 0)
 	{
 		i = std::upper_bound(fibo_begin, i, remainder) - 1;
 		next_bit_pos = bitpos + (i - fibo_begin);
-		buf_offset = (next_bit_pos / word_size) % buf_size;
+		buf_offset = (next_bit_pos / word_size) % bufsize;
 		bit_offset = next_bit_pos % word_size;
 
-		buf[buf_offset] |= shifted_64[word_size - 1 - bit_offset];
+		buf[buf_offset] |= shifted_64[word_size - 1 - bit_offset]; // ONE << (word_size - 1 - bit_offset);
 		remainder -= *i;
 	}
 
@@ -179,12 +88,11 @@ void fiboEncode(const uint64_t num, uint64_t buf[3], uint32_t &bitpos, std::ostr
 	// write fibo-encoded values to output buffer for concentrated elements in buf.
 	for (int p = 0; p < n_elems; ++p)
 	{
-		auto &elem = buf[(curr_byte_pos + p) % buf_size];
+		auto &elem = buf[(curr_byte_pos + p) % bufsize];
 		obuf.write((char *)&elem, sizeof(elem));
 		elem = 0;
 	}
 }
-
 
 /**
  * @brief pack elem into buf starting at bitpos, using exactly b_bits bits.
@@ -380,10 +288,10 @@ void compress_barcodes(BUSData const *const rows, const int row_count, std::ostr
 	uint64_t barcode, last_bc = 0;
 	uint64_t runlen = 0;
 
-	constexpr size_t fibonacci_bufsize{cache_size / sizeof(u_char)};
-	u_char buf[fibonacci_bufsize];
+	constexpr size_t fibonacci_bufsize{cache_size / sizeof(FIBO_t)};
+	FIBO_t fibonacci_buf[fibonacci_bufsize];
 
-	std::fill(buf, buf + fibonacci_bufsize, 0);
+	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0);
 	uint32_t bit_pos{0};
 
 	for (int i = 0; i < row_count; ++i)
@@ -400,23 +308,23 @@ void compress_barcodes(BUSData const *const rows, const int row_count, std::ostr
 		{
 			// Increment values as fibo cannot encode 0
 			if (runlen) {
-				fiboEncode8<fibonacci_bufsize>(1ULL, buf, bit_pos, of);
-				fiboEncode8<fibonacci_bufsize>(runlen, buf, bit_pos, of);
+				fiboEncode<fibonacci_bufsize>(1ULL, fibonacci_buf, bit_pos, of);
+				fiboEncode<fibonacci_bufsize>(runlen, fibonacci_buf, bit_pos, of);
 				runlen = 0;
 			}
-			fiboEncode8<fibonacci_bufsize>(barcode + 1, buf, bit_pos, of);
+			fiboEncode<fibonacci_bufsize>(barcode + 1, fibonacci_buf, bit_pos, of);
 		}
 		last_bc = rows[i].barcode;
 	}
 
 	// Take care of the last run of zeros in the delta-encoded barcodes
 	if (runlen) {
-		fiboEncode8<fibonacci_bufsize>(1ULL, buf, bit_pos, of);
-		fiboEncode8<fibonacci_bufsize>(runlen, buf, bit_pos, of);
+		fiboEncode<fibonacci_bufsize>(1ULL, fibonacci_buf, bit_pos, of);
+		fiboEncode<fibonacci_bufsize>(runlen, fibonacci_buf, bit_pos, of);
 	}
 
 	// Write out the last fibonacci element if applicable.
-	flush_fibonacci(buf, bit_pos, of);
+	flush_fibonacci(fibonacci_buf, bit_pos, of);
 }
 
 /**
@@ -459,11 +367,11 @@ void lossless_compress_umis(BUSData const *const rows, const int row_count, std:
 		{
 			// Increment values for fibonacci encoding.
 			if (runlen) {
-				fiboEncode8<fibonacci_bufsize>(RLE_val + 1, fibonacci_buf, bitpos, of);
-				fiboEncode8<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
+				fiboEncode<fibonacci_bufsize>(RLE_val + 1, fibonacci_buf, bitpos, of);
+				fiboEncode<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
 				runlen = 0;
 			}
-			fiboEncode8<fibonacci_bufsize>(diff + 1, fibonacci_buf, bitpos, of);
+			fiboEncode<fibonacci_bufsize>(diff + 1, fibonacci_buf, bitpos, of);
 		}
 
 		last_umi = umi;
@@ -472,8 +380,8 @@ void lossless_compress_umis(BUSData const *const rows, const int row_count, std:
 
 	// Take care of the last run of zeros.
 	if (runlen) {
-		fiboEncode8<fibonacci_bufsize>(RLE_val + 1, fibonacci_buf, bitpos, of);
-		fiboEncode8<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
+		fiboEncode<fibonacci_bufsize>(RLE_val + 1, fibonacci_buf, bitpos, of);
+		fiboEncode<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
 	}
 
 	// Write last bytes if the fibonacci_buf has not been saturated.
@@ -574,19 +482,19 @@ void compress_counts(BUSData const *const rows, const int row_count, std::ostrea
 			if (runlen)
 			{
 				// Runlength-encode 1s.
-				fiboEncode8<fibonacci_bufsize>(RLE_val, fibonacci_buf, bitpos, of);
-				fiboEncode8<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
+				fiboEncode<fibonacci_bufsize>(RLE_val, fibonacci_buf, bitpos, of);
+				fiboEncode<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
 				runlen = 0;
 			}
 
-			fiboEncode8<fibonacci_bufsize>(count, fibonacci_buf, bitpos, of);
+			fiboEncode<fibonacci_bufsize>(count, fibonacci_buf, bitpos, of);
 		}
 	}
 	if (runlen)
 	{
 		// Runlength-encode last run of 1s.
-		fiboEncode8<fibonacci_bufsize>(RLE_val, fibonacci_buf, bitpos, of);
-		fiboEncode8<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
+		fiboEncode<fibonacci_bufsize>(RLE_val, fibonacci_buf, bitpos, of);
+		fiboEncode<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
 	}
 
 	// Write last bytes when if the fibonacci_buf has not been saturated.
@@ -620,18 +528,18 @@ void compress_flags(BUSData const *const rows, const int row_count, std::ostream
 			// Increment values as fibo cannot encode 0
 			if (runlen) {
 				// Runlength-encode 0s (incremented).
-				fiboEncode8<bufsize>(RLE_val + 1, buf, bit_pos, of);
-				fiboEncode8<bufsize>(runlen, buf, bit_pos, of);
+				fiboEncode<bufsize>(RLE_val + 1, buf, bit_pos, of);
+				fiboEncode<bufsize>(runlen, buf, bit_pos, of);
 				runlen = 0;
 			}
-			fiboEncode8<bufsize>(flag + 1, buf, bit_pos, of);
+			fiboEncode<bufsize>(flag + 1, buf, bit_pos, of);
 		}
 	}
 
 	if (runlen) {
 		// Runlength-encode last run of 0s (incremented).
-		fiboEncode8<bufsize>(RLE_val + 1, buf, bit_pos, of);
-		fiboEncode8<bufsize>(runlen, buf, bit_pos, of);
+		fiboEncode<bufsize>(RLE_val + 1, buf, bit_pos, of);
+		fiboEncode<bufsize>(runlen, buf, bit_pos, of);
 	}
 
 	// Write last bytes when if the fibonacci_buf has not been saturated.
