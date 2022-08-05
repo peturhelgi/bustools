@@ -524,6 +524,35 @@ void decompress_flags_zlib(char *BUF, BUSData *rows, const size_t row_count, con
 		rows[i].flags = buf[i];
 	}
 }
+
+typedef void (*decompress_ptr)(char *, BUSData *, const size_t, const size_t);
+
+void select_decompressors(const compressed_BUSHeader &comp_h, decompress_ptr decompressors[5]){
+	decompress_ptr fibo[5]{
+		&decompress_barcode_fibo<FIBO_t>,
+		&decompress_UMI_fibo<FIBO_t>,
+		&decompress_EC_fibo<FIBO_t>,
+		&decompress_count_fibo<FIBO_t>,
+		&decompress_flags_fibo<FIBO_t>,
+	};
+	decompress_ptr zlib[5]{
+		&decompress_barcode_zlib,
+		&decompress_UMI_zlib,
+		&decompress_EC_zlib,
+		&decompress_count_zlib,
+		&decompress_flags_zlib,
+	};
+
+	for (int i = 0; i < 5; ++i)
+	{
+		if(comp_h.fibo_zlib_compress & (1 << (5 + 4-i))){
+			decompressors[i] = fibo[i];
+		}
+		else if (comp_h.fibo_zlib_compress & (1 << (4 - i))){
+			decompressors[i] = zlib[i];
+		}
+	}
+}
 void bustools_decompress(const Bustools_opt &opt)
 {
 	compressed_BUSHeader comp_header;
@@ -582,17 +611,15 @@ void bustools_decompress(const Bustools_opt &opt)
 	auto col_size_it = col_sizes.begin();
 	const auto col_size_end = col_sizes.end();
 
-	void (*decompress_umi)(char *, BUSData *, const size_t, const size_t) = comp_header.lossy_umi ? &decompress_lossy_umi : &decompress_lossless_umi;
-
-	void (*decompressors[])(char *, BUSData *, const size_t, const size_t) = {
+	decompress_ptr decompress_umi = comp_header.lossy_umi ? &decompress_lossy_umi : &decompress_lossless_umi;
+	decompress_ptr decompressors[5]{
 		&decompress_barcode,
 		decompress_umi,
 		&decompress_ec,
 		&decompress_counts,
 		&decompress_flags,
 	};
-
-	
+	select_decompressors(comp_header, decompressors);
 
 	in.seekg(data_pos, std::ios_base::beg);
 
@@ -618,7 +645,6 @@ void bustools_decompress(const Bustools_opt &opt)
 
 			if (i_decompressor == 0)
 				outf.write((char *)busdata, curr_chunk_size * sizeof(BUSData));
-
 		}
 		delete[] BUF;
 	}
