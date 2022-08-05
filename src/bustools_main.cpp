@@ -1986,11 +1986,12 @@ void Bustools_compress_Usage() {
 }
 
 void Bustools_inflate_Usage() {
-  std::cout << "Usage: bustools inflate [options] compressed-bus-file" << std::endl
+  std::cout << "Usage: bustools {inflate | decompress} [options] compressed-bus-file" << std::endl
             << std::endl
             << "Options: " << std::endl
-            << "-p, --pipe        Write to standard output." << std::endl
-            << "-o, --output      File for inflated output." << std::endl
+            << "-p, --pipe               Write to standard output." << std::endl
+            << "-T, --temp TMP           Write temporary files to TMP when streaming in/out." << std::endl
+            << "-o, --output OUTPUT      File for inflated output." << std::endl
             << std::endl;
 }
 
