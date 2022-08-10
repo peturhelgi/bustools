@@ -103,26 +103,29 @@ void fiboEncode(const uint64_t num, BUF_t *buf, uint32_t &bitpos, std::ostream &
  * @param bitpos The starting point in bits of where to back elem.
  * @return bool: true iff packing of elem saturates buf[0].
  */
+template <typename SRC_T, typename DEST_T>
 bool pack_int(
 	const uint32_t b_bits,
-	uint32_t elem,
-	uint64_t *buf,
+	SRC_T elem,
+	DEST_T *buf,
 	uint32_t &bitpos)
 {
-	int32_t shift = 64 - bitpos - b_bits;
-	uint64_t carryover = 0;
+	constexpr int32_t dest_wordsize = sizeof(DEST_T) * 8;
+	int32_t shift = dest_wordsize - bitpos - b_bits;
+	DEST_T carryover = 0;
+	constexpr DEST_T ONE{1};
 
 	if (shift < 0)
 	{
 		uint32_t r_shift = (b_bits + shift);
-		carryover = elem & ((1ULL << -shift) - 1);
-		*(buf + 1) = carryover << (64U + shift);
+		carryover = elem & ((ONE << -shift) - 1);
+		*(buf + 1) = carryover << (dest_wordsize + shift);
 		elem >>= (-shift);
 	}
 
-	*buf |= (((uint64_t)elem) << std::max(0, shift));
+	*buf |= (((DEST_T)elem) << std::max(0, shift));
 
-	bitpos = (64 - shift) % 64;
+	bitpos = (dest_wordsize - shift) % dest_wordsize;
 	return (shift <= 0);
 }
 
@@ -143,7 +146,7 @@ void encode_pfd_block(
 	std::vector<int32_t> &exceptions,
 	const uint32_t b_bits,
 	const int32_t min_element,
-	uint64_t *BUF)
+	PFD_t *BUF)
 {
 	index_gaps.clear();
 	exceptions.clear();
@@ -159,11 +162,10 @@ void encode_pfd_block(
 	for (auto &elem : pfd_block)
 	{
 		elem -= min_element;
-
 		if (elem > max_elem_bit_mask)
 		{
 			// store the overflowing, most significant bits as exceptions.
-			uint64_t ex = (uint64_t)elem >> b_bits;
+			PFD_t exception_bits = (PFD_t)elem >> b_bits;
 
 			exceptions.push_back(elem >> b_bits);
 			index_gaps.push_back(idx - last_ex_idx);
@@ -173,7 +175,8 @@ void encode_pfd_block(
 			elem &= max_elem_bit_mask;
 		}
 
-		do_increment_pointer = pack_int(b_bits, (uint32_t)elem, BUF, bitpos);
+		// pack_int may need more iterations if we do not have PFD_t as 64 bits.
+		do_increment_pointer = pack_int<uint32_t>(b_bits, elem, BUF, bitpos);
 		BUF += do_increment_pointer;
 		++idx;
 	}
@@ -196,7 +199,7 @@ void new_pfd(
 	std::vector<int32_t> &pfd_block,
 	std::vector<int32_t> &index_gaps,
 	std::vector<int32_t> &exceptions,
-	uint64_t *fibonacci_buf,
+	PFD_t *fibonacci_buf,
 	const size_t b_bits,
 	const int32_t min_element,
 	std::ostream &of)
@@ -205,11 +208,13 @@ void new_pfd(
 	fibonacci_buf[1] = 0;
 	fibonacci_buf[2] = 0;
 
-	size_t buf_size = block_size / 64 * b_bits;
-	uint64_t *PFD_buf = new uint64_t[buf_size];
+	constexpr size_t wordsize = sizeof(PFD_t) * 8;
+
+	size_t buf_size = block_size / wordsize * b_bits;
+	PFD_t *PFD_buf = new PFD_t[buf_size];
 	std::fill(PFD_buf, PFD_buf + buf_size, 0ULL);
 
-	uint64_t *const PFD_buf_begin = PFD_buf;
+	PFD_t *const PFD_buf_begin = PFD_buf;
 	uint32_t bitpos{0};
 
 	encode_pfd_block(pfd_block, index_gaps, exceptions, b_bits, min_element, PFD_buf);
@@ -232,15 +237,9 @@ void new_pfd(
 		fiboEncode<3>(el, fibonacci_buf, bitpos, of);
 	}
 
-	// Flush out the last bits of the fibo encoding.
-	// if (bitpos % 64)
-	// {
-	// 	auto &element = fibonacci_buf[bitpos / 64];
-	// 	of.write((char *)&element, sizeof(element));
-	// }
 	flush_fibonacci(fibonacci_buf, bitpos, of);
 
-	of.write((char *)PFD_buf_begin, buf_size * sizeof(uint64_t));
+	of.write((char *)PFD_buf, buf_size * sizeof(PFD_t));
 	delete[] PFD_buf;
 }
 
@@ -337,8 +336,8 @@ void lossless_compress_umis(BUSData const *const rows, const int row_count, std:
 			 last_umi = 0,
 			 bc, umi, diff;
 
-	constexpr size_t fibonacci_bufsize{cache_size / sizeof(u_char)};
-	u_char fibonacci_buf[fibonacci_bufsize];
+	constexpr size_t fibonacci_bufsize{cache_size / sizeof(FIBO_t)};
+	FIBO_t fibonacci_buf[fibonacci_bufsize];
 	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
 
 	uint32_t bitpos{0};
@@ -410,7 +409,7 @@ void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &
 	pfd_scratch.reserve(BLOCK_SIZE);
 	pfd_block.reserve(BLOCK_SIZE);
 	const size_t fibonacci_bufsize{3};
-	uint64_t fibonacci_buf[fibonacci_bufsize];
+	PFD_t fibonacci_buf[fibonacci_bufsize];
 
 	int row_index{0};
 	int pfd_row_index{0};
@@ -418,9 +417,7 @@ void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &
 	while (row_index < row_count)
 	{
 		std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0);
-		// fibonacci_buf[0] = 0;
-		// fibonacci_buf[1] = 0;
-		// fibonacci_buf[2] = 0;
+
 		pfd_row_index = 0;
 		pfd_scratch.clear();
 		pfd_block.clear();
@@ -462,8 +459,8 @@ void compress_counts(BUSData const *const rows, const int row_count, std::ostrea
 		runlen{0},
 		bitpos{0};
 
-	constexpr size_t fibonacci_bufsize{cache_size / sizeof(u_char)};
-	u_char fibonacci_buf[fibonacci_bufsize];
+	constexpr size_t fibonacci_bufsize{cache_size / sizeof(FIBO_t)};
+	FIBO_t fibonacci_buf[fibonacci_bufsize];
 	std::fill(fibonacci_buf, fibonacci_buf+fibonacci_bufsize, 0ULL);
 
 	for (int i = 0; i < row_count; ++i)
@@ -473,11 +470,8 @@ void compress_counts(BUSData const *const rows, const int row_count, std::ostrea
 		if (count == RLE_val)
 		{
 			++runlen;
-		}
-		else
-		{
-			if (runlen)
-			{
+		} else {
+			if (runlen) {
 				// Runlength-encode 1s.
 				fiboEncode<fibonacci_bufsize>(RLE_val, fibonacci_buf, bitpos, of);
 				fiboEncode<fibonacci_bufsize>(runlen, fibonacci_buf, bitpos, of);
@@ -511,8 +505,8 @@ void compress_flags(BUSData const *const rows, const int row_count, std::ostream
 	uint32_t flag,
 		runlen{0},
 		bit_pos{0};
-	constexpr size_t bufsize{cache_size / sizeof(u_char)};
-	u_char buf[bufsize];
+	constexpr size_t bufsize{cache_size / sizeof(FIBO_t)};
+	FIBO_t buf[bufsize];
 	std::fill(buf, buf + bufsize, 0);
 
 	for (int i = 0; i < row_count; ++i)
@@ -842,8 +836,6 @@ uint32_t get_n_rows(std::istream &inf){
 void bustools_compress(const Bustools_opt &opt)
 {
 	BUSHeader h;
-
-	// maximum chunk_size set by max_memory
 	const size_t ROW_SIZE = sizeof(BUSData);
 	size_t N = opt.max_memory / ROW_SIZE;
 	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
@@ -876,7 +868,7 @@ void bustools_compress(const Bustools_opt &opt)
 	std::ostream outf(buf);
 	std::ostream outHeader(headerBuf);
 
-	bool fibonaccis[5] = {
+	bool fibonacci_select[5] = {
 		((opt.fibo_compress >> 4) & 1) > 0,
 		((opt.fibo_compress >> 3) & 1) > 0,
 		((opt.fibo_compress >> 2) & 1) > 0,
@@ -885,11 +877,11 @@ void bustools_compress(const Bustools_opt &opt)
 	};
 
 	compress_ptr compressors[5]{
-		fibonaccis[0] ? &compress_barcode_fibo<FIBO_t> : &compress_barcodes,
-		fibonaccis[1] ? &compress_UMI_fibo<FIBO_t> : funcs[false && opt.lossy_umi],
-		fibonaccis[2] ? &compress_EC_fibo<FIBO_t> : &compress_ecs,
-		fibonaccis[3] ? &compress_count_fibo<FIBO_t> : &compress_counts,
-		fibonaccis[4] ? &compress_flags_fibo<FIBO_t> : &compress_flags,
+		fibonacci_select[0] ? &compress_barcode_fibo<FIBO_t> : &compress_barcodes,
+		fibonacci_select[1] ? &compress_UMI_fibo<FIBO_t> : funcs[false && opt.lossy_umi],
+		fibonacci_select[2] ? &compress_EC_fibo<FIBO_t> : &compress_ecs,
+		fibonacci_select[3] ? &compress_count_fibo<FIBO_t> : &compress_counts,
+		fibonacci_select[4] ? &compress_flags_fibo<FIBO_t> : &compress_flags,
 	};
 
 	uint32_t zlib_select = 0;
@@ -898,12 +890,10 @@ void bustools_compress(const Bustools_opt &opt)
 		compress_ptr compressor = select_zlib_compressor(i, opt.z_levels[i]);
 		if (compressor != nullptr)
 		{
-			std::cout << "Using zlib for column " << i << '\n';
-			compressors[i] = select_zlib_compressor(i, opt.z_levels[i]);
+			compressors[i] = compressor;
 			zlib_select |= (1 << (4-i));
 		}
 	}
-
 
 	// TODO: should we really allow multiple files?
 	for (const auto &infn : opt.files)
@@ -951,14 +941,8 @@ void bustools_compress(const Bustools_opt &opt)
 		uint64_t block_counter = 0;
 		size_t last_row_count = 0;
 
-		// Store the sizes of each sub-block for easier memory allocation during decompression.
-		// This is subject to change.
-		uint32_t pos_start = outf.tellp(),
-				 pos_end = outf.tellp();
-		std::vector<uint32_t> col_sizes;
-
 		std::vector<uint32_t> chunk_sizes;
-		uint32_t chunk_start, chunk_end;
+		uint32_t chunk_start = outf.tellp(), chunk_end;
 
 		while (in.good())
 		{
@@ -968,20 +952,15 @@ void bustools_compress(const Bustools_opt &opt)
 			last_row_count = row_count;
 			++block_counter;
 
-			chunk_start = outf.tellp();
 			for (int i_col = 0; i_col < 5; ++i_col)
 			{
-				pos_start = pos_end;
 				compressors[i_col](p, row_count, outf);
-				pos_end = outf.tellp();
-				col_sizes.push_back(pos_end - pos_start);
 			}
 			chunk_end = outf.tellp();
 			chunk_sizes.push_back(chunk_end - chunk_start);
 			chunk_start = chunk_end;
 		}
 
-		outHeader.write((char *)&col_sizes[0], col_sizes.size() * sizeof(pos_start));
 		outHeader.seekp(0, std::ios_base::beg);
 
 		// Update the compressed header post compression.

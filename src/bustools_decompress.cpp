@@ -106,38 +106,45 @@ void updatePFD(int32_t *primary, std::vector<int32_t> &index_gaps, std::vector<i
  * @param buf_offset 
  * @return size_t 
  */
-size_t PfdParsePrimaryBlock(uint64_t *buf, const size_t max_elem, const int n_ints, const uint32_t b_bits, int32_t *primary, uint32_t &bit_pos, size_t buf_offset)
+size_t PfdParsePrimaryBlock(
+	PFD_t *buf,
+	const size_t max_elem,
+	const int n_ints,
+	const uint32_t b_bits,
+	int32_t *primary,
+	uint32_t &bit_pos,
+	size_t buf_offset)
 {
-
 	int i = 0;
+	constexpr uint32_t wordsize = sizeof(PFD_t) * 8;
+	constexpr PFD_t ONE{1};
 	while (i < n_ints && buf_offset < max_elem)
 	{
 		// I: 0 <= bit_pos < 64
 
-		uint32_t n_partial = std::min(b_bits, 64 - bit_pos);
+		uint32_t n_partial = std::min(b_bits, wordsize - bit_pos);
 		uint32_t bits_rem = b_bits - n_partial;
 
-		uint32_t shift = (64 - n_partial - bit_pos);
-		uint64_t mask = (1 << n_partial) - 1;
+		uint32_t shift = (wordsize - n_partial - bit_pos);
+		PFD_t mask = (ONE << n_partial) - 1;
 
 		int32_t num = ((buf[buf_offset] >> shift) & mask) << bits_rem;
 
-		bit_pos = (bit_pos + n_partial) % 64;
+		bit_pos = (bit_pos + n_partial) % wordsize;
 		// increment buf_offset if bit_pos == 0, i.e. the next element in `buf` is reached.
 		buf_offset += (!bit_pos);
-		
+
 		if (bits_rem)
 		{
-			shift = 64 - bits_rem;
+			shift = wordsize - bits_rem;
 			num |= buf[buf_offset] >> shift;
 			bit_pos += bits_rem;
 		}
 		primary[i++] = num;
 	}
-	// std::cout << "i: " << i << '\n';
+
 	return buf_offset;
 }
-
 
 /**
  * @brief Decompress barcodes using fibonacci-runlength(0)-delta decoding.
@@ -147,9 +154,10 @@ size_t PfdParsePrimaryBlock(uint64_t *buf, const size_t max_elem, const int n_in
  * @param row_count The number of BUSData elements in `rows`.
  * @param buf_size The size of `BUF` in bytes.
  */
-void decompress_barcode(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {
-	u_char *BUF64 = (u_char *)BUF;
-	size_t buf64_size = (buf_size - 1) / (sizeof(u_char)) + 1;
+void decompress_barcode(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
+{
+	FIBO_t *fibonacci_buf = (FIBO_t *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / (sizeof(FIBO_t)) + 1;
 
 	uint32_t bitpos{0},
 		i_fibo{0},
@@ -162,12 +170,12 @@ void decompress_barcode(char *BUF, BUSData *rows, const size_t row_count, const 
 	uint64_t RLE_VAL{0ULL};
 	while (row_index < row_count)
 	{
-		diff = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
-		
+		diff = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
+
 		if (diff == RLE_VAL)
 		{
 			// Runlength decoding
-			runlen = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset);
+			runlen = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset);
 			for (int i = 0; i < runlen; ++i)
 			{
 				rows[row_index].barcode = barcode;
@@ -182,6 +190,8 @@ void decompress_barcode(char *BUF, BUSData *rows, const size_t row_count, const 
 			++row_index;
 		}
 	}
+
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(FIBO_t);
 }
 
 /**
@@ -194,24 +204,24 @@ void decompress_barcode(char *BUF, BUSData *rows, const size_t row_count, const 
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {
-	u_char *BUF64 = (u_char *)BUF;
-	size_t buf64_size = (buf_size - 1) / (sizeof(u_char)) + 1;
+void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size) {
+	FIBO_t *fibonacci_buf = (FIBO_t *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / (sizeof(FIBO_t)) + 1,
+		   row_index = 0;
 
 	uint32_t bitpos{0},
 		i_fibo{0},
 		buf_offset{0};
-	size_t row_index = 0;
 	uint64_t diff = 0,
 			 last_barcode = rows[0].barcode + 1,
 			 umi = 0,
 			 barcode,
 			 runlen = 0;
 
-	uint64_t RLE_VAL{0ULL};
+	const uint64_t RLE_VAL{0ULL};
 
 	while(row_index < row_count){
-		diff = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+		diff = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
 		barcode = rows[row_index].barcode;
 		if (barcode != last_barcode)
 		{
@@ -221,7 +231,7 @@ void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t row_count, c
 		if (diff == RLE_VAL)
 		{
 			// diff is runlen encoded, next values are identical.
-			runlen = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset);
+			runlen = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset);
 			for (int i = 0; i < runlen; ++i)
 			{
 				rows[row_index].UMI = umi - 1;
@@ -236,6 +246,7 @@ void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t row_count, c
 		}
 		last_barcode = barcode;
 	}
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(FIBO_t);
 }
 /**
  * @brief Decompress UMIs which have been compressed in a lossy manner.
@@ -248,7 +259,7 @@ void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t row_count, c
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {}
+void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size) {}
 
 /**
  * @brief Decompress ECs which have been compressed using NewPFD and fibonacci encoding.
@@ -257,60 +268,59 @@ void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t row_count, cons
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_ec(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_ec(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	uint32_t b_bits = 1;
 	uint32_t buf_offset{0};
 
-	uint64_t *BUF64 = (uint64_t *)BUF;
+	PFD_t *pfd_buf = (PFD_t *)BUF;
 
-	size_t buf64_size = (buf_size - 1) / sizeof(uint64_t) + 1;
+	size_t pfd_bufsize = (buf_size - 1) / sizeof(PFD_t) + 1;
 	uint32_t bitpos{0}, i_fibo{0};
 
 	int32_t min_element{0};
+	constexpr size_t block_size{512};
 
-	int32_t primary[512];
+	int32_t primary[block_size];
 	size_t n_exceptions{0};
 	std::vector<int32_t> exceptions;
 	std::vector<int32_t> index_gaps;
 
-	b_bits = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
-	min_element = (int32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
-	n_exceptions = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+	b_bits = fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset) - 1;
+	min_element = (int32_t)fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset) - 1;
+	n_exceptions = fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset) - 1;
 
 	size_t row_index = 0;
 	while (b_bits)
 	{
-
 		index_gaps.clear();
 		exceptions.clear();
 
-		const auto *start_pos = BUF;
-
 		for (int i = 0; i < n_exceptions; ++i)
 		{
-			index_gaps.push_back(fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1);
+			index_gaps.push_back(fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset) - 1);
 		}
 		
 		for (int i = 0; i < n_exceptions; ++i)
 		{
-			exceptions.push_back(fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset));
+			exceptions.push_back(fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset));
 		}
 
 		buf_offset += (bitpos > 0);
 		bitpos = 0;
 
-		buf_offset = PfdParsePrimaryBlock(BUF64, buf64_size, 512, b_bits, primary, bitpos, buf_offset);
+		buf_offset = PfdParsePrimaryBlock(pfd_buf, pfd_bufsize, 512, b_bits, primary, bitpos, buf_offset);
 		updatePFD(primary, index_gaps, exceptions, b_bits, min_element);
-		for (int i = 0; i < 512 && row_index < row_count; ++i){
+		for (int i = 0; i < block_size && row_index < row_count; ++i){
 			rows[row_index].ec = primary[i];
 			++row_index;
 		}
 		
-		b_bits = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
-		min_element = (int32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
-		n_exceptions = fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
+		b_bits = fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset) - 1;
+		min_element = (int32_t)fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset) - 1;
+		n_exceptions = fiboDecodeSingle(pfd_buf, pfd_bufsize, i_fibo, bitpos, buf_offset) - 1;
 	}
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(PFD_t);
 }
 
 /**
@@ -320,9 +330,9 @@ void decompress_ec(char *BUF, BUSData *rows, const size_t row_count, const size_
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_counts(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {
-	u_char *BUF64 = (u_char *)BUF;
-	size_t buf64_size = (buf_size - 1) / (sizeof(u_char)) + 1;
+void decompress_counts(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size) {
+	FIBO_t *fibonacci_buf = (FIBO_t *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / (sizeof(FIBO_t)) + 1;
 
 	uint32_t bitpos{0},
 		i_fibo{0},
@@ -333,14 +343,16 @@ void decompress_counts(char *BUF, BUSData *rows, const size_t row_count, const s
 			 runlen = 0;
 	const uint32_t RLE_val{1U};
 
-	while(row_index < row_count){
-		curr_el = (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset);
-		runlen = curr_el == RLE_val ? (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) : 1;
+	while(row_index < row_count)
+	{
+		curr_el = (uint32_t)fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset);
+		runlen = curr_el == RLE_val ? (uint32_t)fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) : 1;
 		for (int i = 0; i < runlen; ++i){
 			rows[row_index].count = curr_el;
 			++row_index;
 		}
 	}
+	buf_size =(buf_offset + (bitpos > 0)) * sizeof(FIBO_t);
 }
 
 /**
@@ -350,32 +362,35 @@ void decompress_counts(char *BUF, BUSData *rows, const size_t row_count, const s
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_flags(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size) {
-	u_char *BUF64 = (u_char *)BUF;
-	size_t buf64_size = (buf_size - 1) / (sizeof(u_char)) + 1;
+void decompress_flags(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size) {
+	FIBO_t *fibonacci_buf = (FIBO_t *)BUF;
+	size_t fibonacci_bufsize = (buf_size - 1) / (sizeof(FIBO_t)) + 1,
+		row_index = 0;
 
 	uint32_t bitpos{0},
 		i_fibo{0},
-		buf_offset{0};
-	size_t row_index = 0;
+		buf_offset{0},
+		curr_el{0},
+		runlen{0};
 
-	uint32_t curr_el = 0,
-			 runlen = 0;
 	const uint32_t RLE_val{0U};
 
-	while(row_index < row_count){
-		curr_el = (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) - 1;
-		runlen = curr_el == RLE_val ? (uint32_t)fiboDecodeSingle(BUF64, buf64_size, i_fibo, bitpos, buf_offset) : 1;
+	while(row_index < row_count)
+	{
+		curr_el = (uint32_t)fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
+		runlen = curr_el == RLE_val ? (uint32_t)fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) : 1;
 		for (int i = 0; i < runlen; ++i)
 		{
 			rows[row_index].flags = curr_el;
 			++row_index;
 		}
 	}
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(FIBO_t);
+	
 }
 
 template <typename T>
-void decompress_barcode_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_barcode_fibo(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	T *fibonacci_buf = (T *)BUF;
 	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
@@ -386,9 +401,10 @@ void decompress_barcode_fibo(char *BUF, BUSData *rows, const size_t row_count, c
 	for (int i = 0; i < row_count; ++i){
 		rows[i].barcode = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
 	}
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(T);
 }
 template <typename T>
-void decompress_UMI_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_UMI_fibo(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	T *fibonacci_buf = (T *)BUF;
 	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
@@ -400,9 +416,11 @@ void decompress_UMI_fibo(char *BUF, BUSData *rows, const size_t row_count, const
 	{
 		rows[i].UMI = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
 	}
+
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(T);
 }
 template <typename T>
-void decompress_EC_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_EC_fibo(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	T *fibonacci_buf = (T *)BUF;
 	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
@@ -414,9 +432,11 @@ void decompress_EC_fibo(char *BUF, BUSData *rows, const size_t row_count, const 
 	{
 		rows[i].ec = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
 	}
+
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(T);
 }
 template <typename T>
-void decompress_count_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_count_fibo(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	T *fibonacci_buf = (T *)BUF;
 	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
@@ -428,9 +448,11 @@ void decompress_count_fibo(char *BUF, BUSData *rows, const size_t row_count, con
 	{
 		rows[i].count = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset);
 	}
+
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(T);
 }
 template <typename T>
-void decompress_flags_fibo(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_flags_fibo(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	T *fibonacci_buf = (T *)BUF;
 	size_t fibonacci_bufsize = (buf_size - 1) / sizeof(T) + 1;
@@ -442,9 +464,11 @@ void decompress_flags_fibo(char *BUF, BUSData *rows, const size_t row_count, con
 	{
 		rows[i].flags = fiboDecodeSingle(fibonacci_buf, fibonacci_bufsize, i_fibo, bitpos, buf_offset) - 1;
 	}
+
+	buf_size = (buf_offset + (bitpos > 0)) * sizeof(T);
 }
 
-void decompress_barcode_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_barcode_zlib(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	uint64_t *buf = new uint64_t[row_count];
 	uLongf dest_len = row_count * sizeof(uint64_t);
@@ -458,10 +482,11 @@ void decompress_barcode_zlib(char *BUF, BUSData *rows, const size_t row_count, c
 	{
 		rows[i].barcode = buf[i];
 	}
+	buf_size = src_len;
 }
 
 
-void decompress_UMI_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_UMI_zlib(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	uint64_t *buf = new uint64_t[row_count];
 	uLongf dest_len = row_count * sizeof(uint64_t);
@@ -475,9 +500,10 @@ void decompress_UMI_zlib(char *BUF, BUSData *rows, const size_t row_count, const
 	{
 		rows[i].UMI = buf[i];
 	}
+	buf_size = src_len;
 }
 
-void decompress_EC_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_EC_zlib(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	int32_t *buf = new int32_t[row_count];
 	uLongf dest_len = row_count * sizeof(int32_t);
@@ -491,9 +517,10 @@ void decompress_EC_zlib(char *BUF, BUSData *rows, const size_t row_count, const 
 	{
 		rows[i].ec = buf[i];
 	}
+	buf_size = src_len;
 }
 
-void decompress_count_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_count_zlib(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	uint32_t *buf = new uint32_t[row_count];
 	uLongf dest_len = row_count * sizeof(uint32_t);
@@ -507,9 +534,10 @@ void decompress_count_zlib(char *BUF, BUSData *rows, const size_t row_count, con
 	{
 		rows[i].count = buf[i];
 	}
+	buf_size = src_len;
 }
 
-void decompress_flags_zlib(char *BUF, BUSData *rows, const size_t row_count, const size_t buf_size)
+void decompress_flags_zlib(char *BUF, BUSData *rows, const size_t row_count, size_t &buf_size)
 {
 	uint32_t *buf = new uint32_t[row_count];
 	uLongf dest_len = row_count * sizeof(uint32_t);
@@ -523,9 +551,10 @@ void decompress_flags_zlib(char *BUF, BUSData *rows, const size_t row_count, con
 	{
 		rows[i].flags = buf[i];
 	}
+	buf_size = src_len;
 }
 
-typedef void (*decompress_ptr)(char *, BUSData *, const size_t, const size_t);
+typedef void (*decompress_ptr)(char *, BUSData *, const size_t, size_t &);
 
 void select_decompressors(const compressed_BUSHeader &comp_h, decompress_ptr decompressors[5]){
 	decompress_ptr fibo[5]{
@@ -553,6 +582,23 @@ void select_decompressors(const compressed_BUSHeader &comp_h, decompress_ptr dec
 		}
 	}
 }
+
+void decompress_block(
+	const size_t row_count,
+	const size_t bufsize,
+	const decompress_ptr decompressors[5],
+	char *const BUF,
+	BUSData *busdata)
+{
+	size_t buf_pos = 0;
+	for (int i = 0; i < 5; ++i)
+	{
+		size_t srclen = bufsize;
+		decompressors[i](BUF + buf_pos, busdata, row_count, srclen);
+		buf_pos += srclen;
+	}
+}
+
 void bustools_decompress(const Bustools_opt &opt)
 {
 	compressed_BUSHeader comp_header;
@@ -589,7 +635,7 @@ void bustools_decompress(const Bustools_opt &opt)
 	std::istream in(inbuf);
 
 	if(!parseCompressedHeader(in, comp_header)){
-		std::cerr << "Error: Failed at parsing header.\n";
+		std::cerr << "Error: Failed to parse header.\n";
 		return;
 	}
 
@@ -598,18 +644,6 @@ void bustools_decompress(const Bustools_opt &opt)
 
 	writeHeader(outf, comp_header.extra_header);
 	BUSData *busdata = new BUSData[comp_header.chunk_size];
-
-	const auto data_pos = in.tellg();
-	const int n_decompressors = 5;
-	uint32_t n_cols = n_decompressors * (comp_header.n_chunks + 1);
-	int32_t offset = n_cols * sizeof(uint32_t);
-
-	std::vector<uint32_t> col_sizes(n_cols);
-	in.seekg(-offset, std::ios_base::end);
-	in.read((char *)&col_sizes[0], offset);
-
-	auto col_size_it = col_sizes.begin();
-	const auto col_size_end = col_sizes.end();
 
 	decompress_ptr decompress_umi = comp_header.lossy_umi ? &decompress_lossy_umi : &decompress_lossless_umi;
 	decompress_ptr decompressors[5]{
@@ -621,31 +655,23 @@ void bustools_decompress(const Bustools_opt &opt)
 	};
 	select_decompressors(comp_header, decompressors);
 
-	in.seekg(data_pos, std::ios_base::beg);
+	uint32_t curr_row_count = comp_header.chunk_size,
+			 i_chunk = 0;
 
-	uint32_t curr_chunk_size = comp_header.chunk_size;
-	uint64_t i_chunk = 0;
-	int i_decompressor = 0;
-	uint32_t max_col_size = *std::max_element(col_sizes.begin(), col_sizes.end());
-
+	const auto chunk_size_end = chunk_sizes.end();
 	try
 	{
-		char *BUF = new char[max_col_size];
-		while (in.good() && col_size_it < col_size_end)
+		uint32_t max_block_size = *std::max_element(chunk_sizes.begin(), chunk_sizes.end());
+		char *BUF = new char[max_block_size];
+		for (auto chunk_size_it = chunk_sizes.begin(); in.good() && chunk_size_it < chunk_size_end; ++chunk_size_it, ++i_chunk)
 		{
-			curr_chunk_size = (i_chunk == comp_header.n_chunks) ? comp_header.last_chunk : curr_chunk_size;
+			in.read((char *)BUF, *chunk_size_it);
 
-			in.read((char *)&BUF[0], *col_size_it);
-
-			decompressors[i_decompressor](BUF, busdata, curr_chunk_size, *col_size_it);
-
-			i_decompressor = (i_decompressor + 1) % n_decompressors;
-			i_chunk += !i_decompressor;
-			++col_size_it;
-
-			if (i_decompressor == 0)
-				outf.write((char *)busdata, curr_chunk_size * sizeof(BUSData));
+			curr_row_count = (i_chunk == comp_header.n_chunks) ? comp_header.last_chunk : curr_row_count;
+			decompress_block(curr_row_count, *chunk_size_it, decompressors, BUF, busdata);
+			outf.write((char *)busdata, curr_row_count * sizeof(BUSData));
 		}
+
 		delete[] BUF;
 	}
 	catch (std::bad_alloc)
