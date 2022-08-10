@@ -91,6 +91,151 @@ void fiboEncode(const uint64_t num, BUF_t *buf, uint32_t &bitpos, std::ostream &
 	}
 }
 
+template <typename T>
+uint64_t eliasDeltaDecode(T *&buf, uint32_t &bitpos)
+{
+	size_t wordsize = sizeof(T) * 8;
+	size_t max_pos = wordsize - 1;
+	uint32_t L = 0, N = 0;
+	uint32_t bit{0};
+
+	// Decode unary encoding of L
+	while (!(buf[bitpos / wordsize] >> (max_pos - bitpos % wordsize) & 1))
+	{
+		++L;
+		++bitpos;
+	}
+
+	// Decode binary encoding of N+1
+	for (int i = 0; i < L + 1; ++i)
+	{
+		bit = buf[bitpos / wordsize] >> (max_pos - bitpos % wordsize) & 1;
+		N += bit << (L - i);
+		++bitpos;
+	}
+	--N;
+
+	uint64_t num = 1ULL << N;
+	// Decode headless binary encoding of num
+	for (int i = 0; i < N; ++i)
+	{
+		bit = buf[bitpos / wordsize] >> (max_pos - bitpos % wordsize) & 1;
+		num += bit << (N - i - 1);
+		++bitpos;
+	}
+
+	buf += bitpos / wordsize;
+	bitpos %= wordsize;
+	return num;
+}
+
+template <typename T>
+void printout(const T num)
+{
+	size_t bits = sizeof(num) * 8;
+	for (int i = bits - 1; i >= 0; --i)
+		std::cout << (num >> i & 1);
+	std::cout << '\n';
+}
+
+template <typename SRC_T, typename DEST_T>
+void pack_num(
+	const uint32_t b_bits,
+	SRC_T elem,
+	DEST_T *buf,
+	uint32_t &bitpos)
+{
+	constexpr size_t wordsize = sizeof(DEST_T) * 8;
+	int nbits_left = b_bits;
+	int chunk = wordsize - (bitpos % wordsize);
+	DEST_T ONE{1};
+	DEST_T num{elem};
+	nbits_left -= chunk;
+	while (nbits_left > 0)
+	{
+		DEST_T mask = (ONE << chunk) - 1;
+		buf[bitpos / wordsize] |= (num >> nbits_left) & mask;
+		bitpos += chunk;
+
+		chunk = wordsize - (bitpos % wordsize);
+		nbits_left -= chunk;
+	}
+
+	buf[bitpos / wordsize] |= num << -nbits_left;
+	bitpos += chunk + nbits_left;
+}
+
+template <typename BUF_T>
+void eliasDeltaEncode(const int i, const uint64_t num, BUF_T *&buf, uint32_t &bitpos)
+{
+	// Largest num is 2^64 - 1 with largest N+1 == 64
+	// Thus, an array L_vals[64] = {31 - clz(n+1) for n in range(64)} precompute Ls;
+	constexpr size_t wordsize = sizeof(BUF_T) * 8;
+
+	uint32_t N = 63 - __builtin_clzll(num);
+	uint32_t L = 31 - __builtin_clz(N + 1);
+
+	// Unary encoding of L is implicitly added via shifts in the output buffer.
+	// Thus, the encoding is binary(N+1) prepended to the headlessBinary(num).
+	// We can use a precomputed array for (N + 1) << N, and (1 << N) for 0 <= N < 64.
+
+	bitpos += L; // unary encode L by assuming zeros in buffer
+	pack_num(L + 1, N + 1, buf, bitpos);
+	pack_num(N, num - (1 << N), buf, bitpos);
+
+	buf += bitpos / wordsize;
+	bitpos %= wordsize;
+}
+
+template <size_t bufsize>
+void fiboEncode8_zero(const uint64_t num, unsigned char buf[24], uint32_t &bitpos, std::ostream &obuf)
+{
+	constexpr uint32_t word_size = sizeof(unsigned char) * 8;
+	constexpr uint32_t max_bitpos = bufsize * word_size;
+
+	const uint32_t curr_byte_pos = bitpos / word_size;
+
+	const auto fibo_begin = fibo64_0.begin();
+	const auto fibo_end = fibo64_0.end();
+
+	uint64_t remainder = num;
+
+	// the ith fibonacci number is the largest fibo not greater than remainder
+	auto i = std::upper_bound(fibo_begin, fibo_end, remainder) - 1;
+
+	const uint32_t n_bits = (i - fibo_begin) + 2;
+	uint32_t next_bit_pos = bitpos + n_bits - 1,
+			 bit_offset = next_bit_pos % word_size,
+			 buf_offset = (next_bit_pos / word_size) % bufsize;
+
+	// Set the stop bit.
+	buf[buf_offset] |= shifted_8[word_size - 1 - bit_offset];
+
+	++i;
+	do
+	{
+		i = std::upper_bound(fibo_begin, i, remainder) - 1;
+		next_bit_pos = bitpos + (i - fibo_begin);
+		buf_offset = (next_bit_pos / word_size) % bufsize;
+		bit_offset = next_bit_pos % word_size;
+
+		buf[buf_offset] |= shifted_8[word_size - 1 - bit_offset];
+		remainder -= *i;
+	} while (remainder > 0);
+
+	// n_elems is the number of saturated elements in buf.
+	int n_elems = (bitpos + n_bits) / word_size - curr_byte_pos;
+	bitpos = (bitpos + n_bits) % max_bitpos;
+
+	// write fibo-encoded values to output buffer for concentrated elements in buf.
+	for (int p = 0; p < n_elems; ++p)
+	{
+		auto &elem = buf[(curr_byte_pos + p) % bufsize];
+		obuf.write((char *)&elem, sizeof(elem));
+		elem = 0;
+	}
+}
+
 /**
  * @brief pack elem into buf starting at bitpos, using exactly b_bits bits.
  * @pre num is representable using `b_bits` bits.
