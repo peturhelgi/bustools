@@ -1045,14 +1045,13 @@ bool check_ProgramOptions_inflate(Bustools_opt &opt){
 
 bool check_ProgramOptions_compress(Bustools_opt &opt)
 {
-  // TODO: Tailor this method to compression
   bool ret = true;
   const char* col_names[5] = {"barcode", "UMI", "ec", "count", "flags"};
   for (int i = 0; i < 5; ++i){
     if (opt.z_levels[i] > 0 && (opt.fibo_compress >> (4-i) & 1))
     {
       std::cerr << "Cannot compress column " << col_names[i]
-      << " with fibonacci and zlib.\n";
+      << " with both fibonacci and zlib.\n";
       ret = false;
     }
     if(opt.z_levels[i] < 0 || opt.z_levels[i] > 9){
@@ -1062,7 +1061,72 @@ bool check_ProgramOptions_compress(Bustools_opt &opt)
     }
   }
 
-  ret = check_ProgramOptions_sort(opt);
+  if (!opt.stream_out)
+  {
+    if (opt.output.empty())
+    {
+      std::cerr << "Error: missing output file" << std::endl;
+      ret = false;
+    }
+    else if (!checkOutputFileValid(opt.output))
+    {
+      std::cerr << "Error: unable to open output file" << std::endl;
+      ret = false;
+    }
+  }
+  else
+  {
+    // Temporary files needed if streaming out.
+    if (opt.temp_files.empty())
+    {
+      if (!opt.output.empty())
+        opt.temp_files = opt.output + ".tmp";
+    }
+    else
+    {
+      if (checkDirectoryExists(opt.temp_files))
+      {
+        opt.temp_files += "/bus.compress." + std::to_string(getpid()) + ".";
+      }
+      else
+      {
+        if (opt.temp_files.back() == '/')
+        {
+          if(my_mkdir(opt.temp_files.c_str(), 0777) == 0) {
+            opt.temp_files += "/bus.compress." + std::to_string(getpid()) + ".";
+          }
+          else {
+            std::cerr << "Error: directory " << opt.temp_files << " does not exist and could not be created. Check that the parent directory exists and you have write permissions." << std::endl;
+            ret = false;
+          }
+        }
+        else{
+          if(opt.temp_files.back() != '.')
+            opt.temp_files += '.';
+        }
+      }
+    }
+    if(opt.temp_files.empty()){
+      ret = false;
+    }
+  }
+
+  // TODO: Memory requirements
+
+  if(opt.files.size() != 1){
+    ret = false;
+    if(opt.files.size() == 0){
+      std::cerr << "Error: Missing BUS input files" << std::endl;
+    } else {
+      std::cerr << "Error: Multiple files not yet supported" << std::endl;
+    }
+  } else if (!opt.stream_in){
+    if(!checkFileExists(opt.files[0])){
+      std::cerr << "Error: File not found, " << opt.files[0] << std::endl;
+      ret = false;
+    }
+  }
+
   return ret;
 }
 
@@ -2269,7 +2333,7 @@ int main(int argc, char **argv) {
         exit(0);
       }
       else if (check_ProgramOptions_compress(opt)){
-          bustools_compress(opt);
+        bustools_compress(opt);
         exit(0);
       } else {
         Bustools_compress_Usage();
