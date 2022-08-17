@@ -1009,14 +1009,37 @@ bool check_ProgramOptions_sort(Bustools_opt& opt) {
 }
 
 bool check_ProgramOptions_inflate(Bustools_opt &opt){
-  // TODO: Tailor this method to inflation
+
   bool ret = true;
-  if (opt.stream_in)
-  {
-    std::cerr << "Error: Inflate does not support streaming input.\n";
-    ret = false;
+
+  if(!opt.stream_out){
+    if(opt.output.empty()){
+      std::cerr << "Error: missing output file" << std::endl;
+      ret = false;
+    }
+    else if (!checkOutputFileValid(opt.output)){
+      std::cerr << "Error: unable to open output file" << std::endl;
+      ret = false;
+    }
   }
-  ret = check_ProgramOptions_sort(opt);
+
+  // TODO: Memory requirements.
+
+  if(opt.files.size() != 1){
+    ret = false;
+    if(opt.files.size() == 0){
+      std::cerr << "Error: Missing compressed BUS input files" << std::endl;
+    } else{
+      std::cerr << "Error: Multiple files not yet supported" << std::endl;
+    }
+  }
+  else if (!opt.stream_in){
+    if(!checkFileExists(opt.files[0])){
+      std::cerr << "Error: File not found, " << opt.files[0] << std::endl;
+      ret = false;
+    }
+  }
+
   return ret;
 }
 
