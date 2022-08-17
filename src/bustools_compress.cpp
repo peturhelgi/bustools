@@ -859,7 +859,6 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<1>,
 			&compress_flags_zlib<1>};
 		return zlibs[col];
-		break;
 	}
 	case 2:
 	{
@@ -870,10 +869,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<2>,
 			&compress_flags_zlib<2>};
 		return zlibs[col];
-		break;
 	}
 	case 3:
-		{
+	{
 		compress_ptr zlibs[5]{
 			&compress_barcode_zlib<3>,
 			&compress_UMI_zlib<3>,
@@ -881,12 +879,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<3>,
 			&compress_flags_zlib<3>};
 		return zlibs[col];
-		break;
 	}
-		break;
-
 	case 4:
-		{
+	{
 		compress_ptr zlibs[5]{
 			&compress_barcode_zlib<4>,
 			&compress_UMI_zlib<4>,
@@ -894,12 +889,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<4>,
 			&compress_flags_zlib<4>};
 		return zlibs[col];
-		break;
 	}
-		break;
-
 	case 5:
-		{
+	{
 		compress_ptr zlibs[5]{
 			&compress_barcode_zlib<5>,
 			&compress_UMI_zlib<5>,
@@ -907,12 +899,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<5>,
 			&compress_flags_zlib<5>};
 		return zlibs[col];
-		break;
 	}
-		break;
-
 	case 6:
-		{
+	{
 		compress_ptr zlibs[5]{
 			&compress_barcode_zlib<6>,
 			&compress_UMI_zlib<6>,
@@ -920,12 +909,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<6>,
 			&compress_flags_zlib<6>};
 		return zlibs[col];
-		break;
 	}
-		break;
-
 	case 7:
-		{
+	{
 		compress_ptr zlibs[5]{
 			&compress_barcode_zlib<7>,
 			&compress_UMI_zlib<7>,
@@ -933,12 +919,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<7>,
 			&compress_flags_zlib<7>};
 		return zlibs[col];
-		break;
 	}
-		break;
-
 	case 8:
-		{
+	{
 		compress_ptr zlibs[5]{
 			&compress_barcode_zlib<8>,
 			&compress_UMI_zlib<8>,
@@ -946,12 +929,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<8>,
 			&compress_flags_zlib<8>};
 		return zlibs[col];
-		break;
 	}
-		break;
-
 	case 9:
-		{
+	{
 		compress_ptr zlibs[5]{
 			&compress_barcode_zlib<9>,
 			&compress_UMI_zlib<9>,
@@ -959,14 +939,9 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 			&compress_count_zlib<9>,
 			&compress_flags_zlib<9>};
 		return zlibs[col];
-		break;
 	}
-		break;
-
 	default:
-		{
-			return nullptr;
-		}
+		return nullptr;
 	}
 }
 
