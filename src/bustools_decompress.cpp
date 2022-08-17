@@ -620,9 +620,7 @@ void bustools_decompress(const Bustools_opt &opt)
 	std::streambuf *inbuf;
 	std::ifstream inf;
 
-	// don't allow stream in for now.
-	const bool allow_streamin = false;
-	if (opt.stream_in && allow_streamin)
+	if (opt.stream_in)
 	{
 		inbuf = std::cin.rdbuf();
 	}
