@@ -815,6 +815,140 @@ uint32_t get_n_rows(std::istream &inf){
 	return (file_end - header_end) / 32;
 }
 
+
+int get_target_file_type(const std::string &filename)
+{
+	// const std::string filename = "data/matrix_tiny.ec";
+	std::ifstream inf(filename);
+	if(!inf.is_open()){
+		return -2;
+	}
+	char magic[5];
+	int ret = -1;
+	inf.read((char *)&magic[0], 4);
+
+	magic[4] = '\0';
+	if (std::strcmp(&magic[0], "BUS\0") == 0)
+	{
+		return 0;
+	}
+	if (std::strcmp(&magic[0], "BUS\1\0") == 0)
+	{
+		return 1;
+	}
+
+	if (std::strcmp(&magic[0], "0\t0\n") == 0)
+	{
+		return 2;
+	}
+
+	if (std::strcmp(&magic[0], "BEC\0") == 0)
+	{
+		return 3;
+	}
+	return -1;
+}
+template <typename T>
+void pack_ec_row_to_file(
+	const std::vector<int32_t> &ecs,
+	const size_t bufsize,
+	T *buf,
+	uint32_t &bitpos,
+	std::ostream &of)
+{
+	// Diffs must be incremented since ec == 0 is valid, although rare.
+	constexpr int32_t RL_VAL{2};
+
+	size_t n_elems{ecs.size()};
+
+	uint32_t diff,
+		last_ec{0},
+		runlen{0};
+
+	fiboEncode<T>(n_elems, bufsize, buf, bitpos, of);
+
+	for (const auto &ec : ecs)
+	{
+		diff = ec - last_ec + 1;
+		if (diff == RL_VAL)
+		{
+			++runlen;
+		}
+		else
+		{
+			if (runlen)
+			{
+				fiboEncode<T>(RL_VAL, bufsize, buf, bitpos, of);
+				fiboEncode<T>(runlen, bufsize, buf, bitpos, of);
+
+				runlen = 0;
+			}
+			fiboEncode<T>(diff, bufsize, buf, bitpos, of);
+		}
+		last_ec = ec;
+	}
+	if (runlen)
+	{
+		fiboEncode<T>(RL_VAL, bufsize, buf, bitpos, of);
+		fiboEncode<T>(runlen, bufsize, buf, bitpos, of);
+	}
+}
+
+template <typename T = uint16_t>
+void compress_ec_matrix(const std::string &filename, BUSHeader &h)
+{
+	// first m rows map to themselves. In the file, we count how many such rows there are.
+	// For the rest, we don't need the ids, only the delta+runlen-1+int-coding of the ECs
+	parseECs(filename, h);
+	std::cerr << "Done parsing ecs" << std::endl;
+	auto &ecs = h.ecs;
+
+	uint32_t lo = 0, hi = ecs.size() - 1, mid;
+
+	// Assume all i->i rows are at the beginning of file.
+	while (lo < hi)
+	{
+		// |  ecs[i] = [i]  |   ?   |  ecs[i] != [i]  |
+		//  ^              ^       ^                   ^
+		//  0              lo     hi                 ecs.size()
+		mid = lo + (hi - lo + 1) / 2;
+		if (ecs.at(mid)[0] != mid || ecs.at(mid).size() != 1)
+		{
+			hi = mid - 1;
+		}
+		else
+		{
+			lo = mid;
+		}
+	}
+
+	uint32_t num_identities = lo + 1;
+	std::string filename_out = filename + 'z';
+
+	constexpr size_t fibonacci_bufsize{24 / sizeof(T)};
+
+	T fibonacci_buf[fibonacci_bufsize];
+	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0);
+
+	std::ofstream out(filename_out.c_str(), std::ios::binary);
+	std::ostream of(out.rdbuf());
+
+	of.write("BEC\0", 4);
+	of.write((char *)&num_identities, sizeof(num_identities));
+	num_identities = ecs.size() - num_identities;
+	of.write((char *)&num_identities, sizeof(num_identities));
+
+	uint32_t bitpos{0};
+	const auto ecs_end = ecs.end();
+
+	for (auto ecs_it = ecs.begin() + lo + 1; ecs_it < ecs_end; ++ecs_it)
+	{
+		auto &ecs_list = *ecs_it;
+		pack_ec_row_to_file(ecs_list, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+	}
+	flush_fibonacci<T>(fibonacci_buf, bitpos, of);
+}
+
 void bustools_compress(const Bustools_opt &opt)
 {
 	BUSHeader h;
@@ -890,6 +1024,34 @@ void bustools_compress(const Bustools_opt &opt)
 		}
 		else
 		{
+			int target_file_type = get_target_file_type(infn);
+			switch (target_file_type)
+			{
+			case 0:
+				// compress busfile
+				std::cerr << "Compressing BUS file " << infn << "\n";
+				break;
+			case 1:
+				// decompress busz file
+				std::cerr << "Warning: The file " << infn << " is a compressed BUS file. Skipping.\n";
+				continue;
+			case 2:
+				std::cerr << "Compressing matrix file " << infn << '\n';
+				compress_ec_matrix(infn, h);
+				continue;
+			case 3:
+				// read compressed matrix.ecz
+				std::cerr << "Warning: The file " << infn << " is a compressed EC matrix file. Skipping.\n";
+				continue;
+			case -2:
+				std::cerr << "Error: Unable to open file " << infn << '\n';
+				continue;
+			default:
+
+				std::cerr << "Warning: Unknown file type. Skipping compression on" << infn << "\n";
+				continue;
+			}
+
 			inf.open(infn.c_str(), std::ios::binary);
 			inbuf = inf.rdbuf();
 		}
