@@ -66,6 +66,73 @@ uint64_t fiboDecodeSingle(T const *const buf, const size_t n_buf, uint32_t &i_fi
 	return num;
 }
 
+template <size_t wordsize, typename T>
+inline T read_bit(const size_t bitpos, const T num)
+{
+	return (num >> (wordsize - 1 - bitpos)) & 1;
+}
+/**
+ * @brief Decodes a single fibonacci-encoded number from buffered stream.
+ * @invariant:	0 <= bitpos < 8*sizeof(SRC_T)
+ * 				0 <= bufpos < bufsize, if bufsize != 0, 0 otherwise
+ * 				bitpos is the bit-index (from left) of the bit starting the fibo-encoding of the next value.
+ * 				bufpos is the index in buf starting the fibo-encoding of the next value.
+
+ * @tparam SRC_T the type of the read buffer.
+ * @tparam DEST_T the type of the decoded number.
+ * @param buf read buffer. Contains Fibonacci-encoded numbers. Has at least bufsize elements.
+ * @param bufsize The number of elements last read from `in`.
+ * @param bufpos The position in buf where we start reading from. 0 <= bufpos < bufsize.
+ * @param bitpos The bit position where the next fibonacci encoding starts within a single SRC_T word.
+ * @param in the stream to decode.
+ * @return DEST_T the next fibonacci decoded number if decoding terminates before eof, 0 otherwise.
+ */
+template <typename SRC_T, typename DEST_T>
+DEST_T decodeFibonacciStream(
+	SRC_T *buf,
+	size_t &bufsize,
+	size_t &bufpos,
+	size_t &bitpos,
+	std::istream &in)
+{
+	DEST_T num = 0;
+	uint32_t i_fibo{0};
+
+	constexpr size_t wordsize = sizeof(SRC_T) * 8;
+
+	SRC_T bit = read_bit<wordsize>(bitpos, buf[bufpos]),
+		  last_bit = 0;
+
+	bitpos = (bitpos + 1) % wordsize;
+	bufpos += bitpos == 0;
+
+	if (bufpos == bufsize)
+	{
+		in.read((char *)buf, sizeof(SRC_T) * bufsize);
+		bufsize = in.gcount() / sizeof(SRC_T);
+		bufpos = 0;
+	}
+
+	while (!(last_bit && bit) && bufsize > 0)
+	{
+		// 0 <= bufpos < bufsize if EOF is not reached
+		// 0 <= bitpos < wordsize
+
+		num += bit * fibo64[i_fibo++];
+		last_bit = bit;
+		bit = read_bit<wordsize>(bitpos, buf[bufpos]);
+		bitpos = (bitpos + 1) % wordsize;
+		bufpos += bitpos == 0;
+
+		if (bufpos >= bufsize)
+		{
+			in.read((char *)buf, sizeof(SRC_T) * bufsize);
+			bufsize = in.gcount() / sizeof(SRC_T);
+			bufpos = 0;
+		}
+	}
+	return num * (last_bit && bit);
+}
 /**
  * @brief Finish NewPFD encoding after parsing to account for exceptions.
  *
@@ -599,6 +666,116 @@ void decompress_block(
 	}
 }
 
+template <typename T>
+int32_t decompress_ec_row(
+	std::vector<int32_t> &vec,
+	size_t bufsize,
+	T *buf,
+	std::istream &in,
+	size_t &bitpos,
+	size_t &bufpos
+)
+{
+	constexpr uint32_t RL_VAL{1};
+	uint32_t n_elems = decodeFibonacciStream<T, uint32_t>(buf, bufsize, bufpos, bitpos, in);
+
+	int i_elem{0};
+	uint32_t ec{0};
+	uint32_t runlen{0};
+
+	vec.resize(n_elems);
+
+	while (i_elem < n_elems)
+	{
+		uint32_t diff = decodeFibonacciStream<T, uint32_t>(buf, bufsize, bufpos, bitpos, in) - 1;
+
+		if (diff == RL_VAL)
+		{
+			runlen = decodeFibonacciStream<T, uint32_t>(buf, bufsize, bufpos, bitpos, in);
+
+			for (int j = 0; j < runlen; ++j)
+			{
+				vec[i_elem++] = ++ec;
+			}
+		}
+		else
+		{
+			ec += diff;
+			vec[i_elem++] = ec;
+		}
+	}
+	return n_elems;
+}
+
+template <typename myfibo_t = uint16_t>
+bool decompress_matrix(const std::string &filename, BUSHeader &header, size_t bufsize=100000){
+	std::ifstream inf(filename.c_str(), std::ios_base::binary);
+
+	char magic[4];
+	inf.read((char *)magic, 4);
+
+	if (std::strcmp(magic, "BEC\0") != 0)
+	{
+		return false;
+	}
+
+	// Number of rows mapping to themselves.
+	uint32_t num_identities{0},
+		// Number of rows not mapping to themselves.
+		num_rows{0};
+
+	inf.read((char *)&num_identities, sizeof(num_identities));
+	inf.read((char *)&num_rows, sizeof(num_rows));
+
+	std::vector<std::vector<int32_t>> &ecs = header.ecs;
+	ecs.resize(num_identities);
+	int32_t ec_idx = 0;
+	for (; ec_idx < num_identities; ++ec_idx)
+	{
+		ecs[ec_idx].push_back(ec_idx);
+	}
+
+	// size_t bufsize = 100000;
+
+	try
+	{
+		myfibo_t *readbuf = new myfibo_t[bufsize];
+		std::fill(readbuf, readbuf + bufsize, 0);
+		size_t bitpos = 0,
+			   bufpos = 0;
+
+		inf.read((char *)readbuf, bufsize * sizeof(myfibo_t));
+		bufsize = inf.gcount() / sizeof(myfibo_t);
+
+		int32_t n_elems = 0;
+		std::vector<int32_t> vec;
+		for (int i = 0; i < num_rows; ++i)
+		{
+			vec.clear();
+			n_elems = decompress_ec_row(vec, bufsize, readbuf, inf, bitpos, bufpos);
+			ecs.push_back(std::move(vec));
+			++ec_idx;
+		}
+		delete[] readbuf;
+	}
+	catch (const std::bad_alloc &ex)
+	{
+		std::cerr << "Error: Unable to allocate buffer.\n\t"
+				  << ex.what() << std::endl;
+		return false;
+	}
+	catch (const std::exception &exception)
+	{
+		std::cerr << "Error: Unable to decode EC matrix:\n\t"
+				  << exception.what() << std::endl;
+		return false;
+	}
+
+	writeECs("output/matrix_test.ec", header);
+
+	return true;
+}
+
 void bustools_decompress(const Bustools_opt &opt)
 {
 	compressed_BUSHeader comp_header;
@@ -616,66 +793,96 @@ void bustools_decompress(const Bustools_opt &opt)
 	}
 
 	std::ostream outf(buf);
-	const auto &infn = opt.files[0];
-	std::streambuf *inbuf;
-	std::ifstream inf;
-
-	if (opt.stream_in)
+	for (const auto &infn : opt.files)
 	{
-		inbuf = std::cin.rdbuf();
-	}
-	else
-	{
-		inf.open(infn.c_str(), std::ios::binary);
-		inbuf = inf.rdbuf();
-	}
+		std::streambuf *inbuf;
+		std::ifstream inf;
 
-	std::istream in(inbuf);
-
-	if(!parseCompressedHeader(in, comp_header)){
-		std::cerr << "Error: Failed to parse header.\n";
-		return;
-	}
-
-	std::vector<uint32_t> chunk_sizes(comp_header.n_chunks+1);
-	in.read((char*)&chunk_sizes[0], (comp_header.n_chunks + 1) * sizeof(uint32_t));
-
-	writeHeader(outf, comp_header.extra_header);
-	BUSData *busdata = new BUSData[comp_header.chunk_size];
-
-	decompress_ptr decompress_umi = comp_header.lossy_umi ? &decompress_lossy_umi : &decompress_lossless_umi;
-	decompress_ptr decompressors[5]{
-		&decompress_barcode,
-		decompress_umi,
-		&decompress_ec,
-		&decompress_counts,
-		&decompress_flags,
-	};
-	select_decompressors(comp_header, decompressors);
-
-	uint32_t curr_row_count = comp_header.chunk_size,
-			 i_chunk = 0;
-
-	const auto chunk_size_end = chunk_sizes.end();
-	try
-	{
-		uint32_t max_block_size = *std::max_element(chunk_sizes.begin(), chunk_sizes.end());
-		char *BUF = new char[max_block_size];
-		for (auto chunk_size_it = chunk_sizes.begin(); in.good() && chunk_size_it < chunk_size_end; ++chunk_size_it, ++i_chunk)
+		if (opt.stream_in)
 		{
-			in.read((char *)BUF, *chunk_size_it);
+			inbuf = std::cin.rdbuf();
+		}
+		else
+		{
+			int target_file_type = get_target_file_type(infn);
+			switch (target_file_type)
+			{
+			case 0:
+				std::cerr << "Warning: The file " << infn << " is an uncompressed BUS file. Skipping\n" ;
+				continue;
+			case 1:
+				// compressed bus file
+				break;
+			case 2:
+				std::cerr << "Warning: The file " << infn << " is an uncompressed EC matrix file. Skipping\n";
+				continue;
+			case 3:
+				std::cerr << "Decompressing matrix\n";
+				decompress_matrix(infn, comp_header.extra_header);
+				continue;
+			case -2:
+				std::cerr << "Error: Unable to open file " << infn << '\n';
+				continue;
+			default:
+				std::cerr << "Warning: Unknown file type. Skipping.\n";
+				continue;;
+			}
 
-			curr_row_count = (i_chunk == comp_header.n_chunks) ? comp_header.last_chunk : curr_row_count;
-			decompress_block(curr_row_count, *chunk_size_it, decompressors, BUF, busdata);
-			outf.write((char *)busdata, curr_row_count * sizeof(BUSData));
+			inf.open(infn.c_str(), std::ios::binary);
+			inbuf = inf.rdbuf();
 		}
 
-		delete[] BUF;
-	}
-	catch (std::bad_alloc)
-	{
-		std::cerr << "Unable to allocate bytes" << std::endl;
-	}
+		std::istream in(inbuf);
 
-	delete[] busdata;
+		if (!parseCompressedHeader(in, comp_header))
+		{
+			std::cerr << "Error: Failed to parse header.\n";
+			return;
+		}
+
+		std::vector<uint32_t> chunk_sizes(comp_header.n_chunks + 1);
+		in.read((char *)&chunk_sizes[0], (comp_header.n_chunks + 1) * sizeof(uint32_t));
+
+		writeHeader(outf, comp_header.extra_header);
+		BUSData *busdata = new BUSData[comp_header.chunk_size];
+
+		decompress_ptr lossy_umi = &decompress_lossy_umi,
+					   lossless_umi = &decompress_lossless_umi;
+
+		decompress_ptr decompress_umi = comp_header.lossy_umi ? lossy_umi : lossless_umi;
+		decompress_ptr decompressors[5]{
+			&decompress_barcode,
+			decompress_umi,
+			&decompress_ec,
+			&decompress_counts,
+			&decompress_flags,
+		};
+		select_decompressors(comp_header, decompressors);
+
+		uint32_t curr_row_count = comp_header.chunk_size,
+				 i_chunk = 0;
+
+		const auto chunk_size_end = chunk_sizes.end();
+		try
+		{
+			uint32_t max_block_size = *std::max_element(chunk_sizes.begin(), chunk_sizes.end());
+			char *BUF = new char[max_block_size];
+			for (auto chunk_size_it = chunk_sizes.begin(); in.good() && chunk_size_it < chunk_size_end; ++chunk_size_it, ++i_chunk)
+			{
+				in.read((char *)BUF, *chunk_size_it);
+
+				curr_row_count = (i_chunk == comp_header.n_chunks) ? comp_header.last_chunk : curr_row_count;
+				decompress_block(curr_row_count, *chunk_size_it, decompressors, BUF, busdata);
+				outf.write((char *)busdata, curr_row_count * sizeof(BUSData));
+			}
+
+			delete[] BUF;
+		}
+		catch (const std::bad_alloc &ex)
+		{
+			std::cerr << "Unable to allocate bytes" << std::endl;
+		}
+
+		delete[] busdata;
+	}
 }
