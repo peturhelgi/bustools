@@ -87,21 +87,22 @@ template <typename SRC_T, typename DEST_T>
 DEST_T decodeFibonacciStream(
 	SRC_T *buf,
 	size_t &bufsize,
-	size_t &bufpos,
 	size_t &bitpos,
+	size_t &bufpos,
 	std::istream &in)
 {
 	DEST_T num = 0;
 	uint32_t i_fibo{0};
 
 	constexpr size_t wordsize = sizeof(SRC_T) * 8;
+	size_t buf_offset = bufpos;
+	size_t bit_offset = wordsize - bitpos%wordsize -1;
 
 	SRC_T bit = read_bit<wordsize>(bitpos, buf[bufpos]),
 		  last_bit = 0;
 
 	bitpos = (bitpos + 1) % wordsize;
 	bufpos += bitpos == 0;
-
 	if (bufpos == bufsize)
 	{
 		in.read((char *)buf, sizeof(SRC_T) * bufsize);
@@ -109,7 +110,7 @@ DEST_T decodeFibonacciStream(
 		bufpos = 0;
 	}
 
-	while (!(last_bit && bit) && bufsize > 0)
+	while (!(last_bit && bit) && bufpos >= bufsize)
 	{
 		// 0 <= bufpos < bufsize if EOF is not reached
 		// 0 <= bitpos < wordsize
