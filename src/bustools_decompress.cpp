@@ -130,6 +130,61 @@ DEST_T decodeFibonacciStream(
 	}
 	return num * (last_bit && bit);
 }
+
+template <typename T>
+uint64_t eliasDeltaDecode(T const *const buf, const size_t bufsize, uint32_t &bitpos, uint32_t &bufpos)
+{
+	size_t wordsize = sizeof(T) * 8;
+	size_t max_pos = wordsize - 1;
+	uint32_t L = 0, N = 0;
+	uint64_t bit{0};
+	size_t bit_offset = max_pos - (bitpos % wordsize);
+	// TODO: make buffer cyclical and write to obuf, just like fibonacci.
+
+	// EliasDelta(X): unary(L) + headless_binary(N+1) + headless_binary(num)
+	// N = len(headless_binary(num))
+	// L = len(headless_binary(N+1))
+
+	// Decode unary encoding of L
+	while (bufpos < bufsize && !(buf[bufpos] >> (max_pos - bitpos % wordsize) & 1))
+	{
+		++L;
+		++bitpos;
+		bufpos += (bitpos % wordsize == 0);
+		bit_offset = max_pos - (bitpos % wordsize);
+	}
+
+	// Decode binary encoding of N+1
+	for (int i = 0; i < L + 1 && bufpos < bufsize; ++i)
+	{
+		bit = buf[bufpos] >> (max_pos - bitpos % wordsize) & 1;
+		N += bit << (L - i);
+		++bitpos;
+		bufpos += (bitpos % wordsize == 0);
+	}
+	--N;
+
+	uint64_t num = 1ULL << N;
+
+	// Decode headless binary encoding of num
+	// we can take this in chunks, as we are dealing with "normal" bits
+	for (int i = 0; i < N && bufpos < bufsize; ++i)
+	{
+		bit = buf[bufpos] >> (max_pos - bitpos % wordsize) & 1;
+		num += bit << (N - i - 1);
+		++bitpos;
+		bufpos += (bitpos % wordsize == 0);
+	}
+
+	if (bufpos >= bufsize)
+	{
+		throw std::out_of_range("Encoding buffer out of bounds.");
+	}
+
+	bitpos %= wordsize;
+	return num;
+}
+
 /**
  * @brief Finish NewPFD encoding after parsing to account for exceptions.
  *
