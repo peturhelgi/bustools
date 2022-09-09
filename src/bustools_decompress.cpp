@@ -687,7 +687,8 @@ void select_decompressors(const compressed_BUSHeader &comp_h, decompress_ptr dec
 
 	for (int i = 0; i < 5; ++i)
 	{
-		if(comp_h.fibo_zlib_compress & (1 << (5 + 4-i))){
+		if (comp_h.fibo_zlib_compress & (1 << (5 + 4 - i)))
+		{
 			decompressors[i] = fibo[i];
 		}
 		else if (comp_h.fibo_zlib_compress & (1 << (4 - i))){
@@ -780,8 +781,6 @@ bool decompress_matrix(const std::string &filename, BUSHeader &header, size_t bu
 	{
 		ecs[ec_idx].push_back(ec_idx);
 	}
-
-	// size_t bufsize = 100000;
 
 	try
 	{
