@@ -79,6 +79,7 @@ struct Bustools_opt {
   bool lossy_umi = 0;
   uint16_t fibo_compress = 0;
   int z_levels[5]{0,0,0,0,0};
+  uint32_t pfd_blocksize = 512;
 
   Bustools_opt() : threads(1), max_memory(1ULL<<32), type(0),
     threshold(0), start(-1), end(-1)  {}

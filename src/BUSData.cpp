@@ -131,8 +131,9 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
 
   // We store the compressed_header-specific information after the regular header
   inf.read((char *)&compheader.chunk_size, sizeof(compheader.chunk_size));
-  inf.read((char *)&compheader.n_chunks, sizeof(compheader.n_chunks));
-  inf.read((char *)&compheader.last_chunk, sizeof(compheader.last_chunk));
+  inf.read((char *)&compheader.pfd_blocksize, sizeof(compheader.pfd_blocksize));
+  // inf.read((char *)&compheader.n_chunks, sizeof(compheader.n_chunks));
+  // inf.read((char *)&compheader.last_chunk, sizeof(compheader.last_chunk));
   inf.read((char *)&compheader.lossy_umi, sizeof(compheader.lossy_umi));
   inf.read((char *)&compheader.fibo_zlib_compress, sizeof(compheader.fibo_zlib_compress));
 
@@ -341,8 +342,9 @@ bool writeCompressedHeader(std::ostream &outf, const compressed_BUSHeader &comph
 
   // We end by writing out the compressed-header-specific data
   outf.write((char *)(&compheader.chunk_size), sizeof(compheader.chunk_size));
-  outf.write((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
-  outf.write((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
+  outf.write((char *)&compheader.pfd_blocksize, sizeof(compheader.pfd_blocksize));
+  // outf.write((char *)(&compheader.n_chunks), sizeof(compheader.n_chunks));
+  // outf.write((char *)(&compheader.last_chunk), sizeof(compheader.last_chunk));
   outf.write((char *)(&compheader.lossy_umi), sizeof(compheader.lossy_umi));
   outf.write((char *)&compheader.fibo_zlib_compress, sizeof(compheader.fibo_zlib_compress));
 

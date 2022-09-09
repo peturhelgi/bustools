@@ -147,12 +147,13 @@ bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
   const char *opt_string = "N:Lo:pT:z:f:h";
   static struct option long_options[] = {
       {"chunk-size", required_argument, 0, 'N'},
-      {"lossy-umi", no_argument, 0, 'L'},
+      // {"lossy-umi", no_argument, 0, 'L'}, // ignore lossy for now
       {"output", required_argument, 0, 'o'},
       {"pipe", no_argument, 0, 'p'},
       {"temp", required_argument, 0, 'T'},
       {"zlib", required_argument, 0, 'z'},
       {"fibonacci", required_argument, 0, 'f'},
+      {"pfd-size", required_argument, 0, 'P'},
       {"help", no_argument, 0, 'h'},
       {0, 0, 0, 0}};
   int option_index = 0, c;
@@ -192,7 +193,12 @@ bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
       opt.temp_files = optarg;
       break;
     case 'L':
-      opt.lossy_umi = true;
+      std::cerr << "Lossy UMI not yet implemented. Using lossless instead." << std::endl;
+      // opt.lossy_umi = true;
+      break;
+
+    case 'P':
+      opt.pfd_blocksize = atoi(optarg);
       break;
     case 'h':
       print_usage = true;
