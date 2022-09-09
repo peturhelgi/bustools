@@ -260,7 +260,7 @@ void compute_pfd_params(
 	int32_t &min_element,
 	uint32_t &b_bits)
 {
-	const size_t nth_elem_idx = (size_t)((double)block_size * 0.9f);
+	const size_t nth_elem_idx = (size_t)((double)block_size * 0.9);
 	std::nth_element(pfd_scratch.begin(), pfd_scratch.begin(), pfd_scratch.end());
 	min_element = pfd_scratch[0];
 
@@ -922,20 +922,11 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 	}
 }
 
-uint32_t get_n_rows(std::istream &inf){
-	auto header_end = inf.tellg();
-	inf.seekg(0, std::ios::end);
-	auto file_end = inf.tellg();
-	inf.seekg(header_end, std::ios::beg);
-	return (file_end - header_end) / 32;
-}
-
-
 int get_target_file_type(const std::string &filename)
 {
-	// const std::string filename = "data/matrix_tiny.ec";
 	std::ifstream inf(filename);
-	if(!inf.is_open()){
+	if (!inf.is_open())
+	{
 		return -2;
 	}
 	char magic[5];
@@ -962,6 +953,146 @@ int get_target_file_type(const std::string &filename)
 		return 3;
 	}
 	return -1;
+}
+
+uint32_t select_compressors(const Bustools_opt &opt, compress_ptr compressors[5]){
+	
+	compress_ptr fibonacci_compressors[5]{
+		&compress_barcode_fibo<FIBO_t>,
+		&compress_UMI_fibo<FIBO_t>,
+		&compress_EC_fibo<FIBO_t>,
+		&compress_count_fibo<FIBO_t>,
+		&compress_flags_fibo<FIBO_t>,
+	};
+	compress_ptr bustools_compressors[5]{
+		&compress_barcodes,
+		(opt.lossy_umi ? &lossy_compress_umis : &lossless_compress_umis),
+		&compress_ecs,
+		&compress_counts,
+		&compress_flags,
+	};
+
+	uint32_t zlib_select = 0;
+	for (int i = 0; i < 5; ++i){
+		compressors[i] = bustools_compressors[i];
+		if((opt.fibo_compress >> (4-i) & 1) > 0)
+		{
+			compressors[i] = fibonacci_compressors[i];
+		}
+		else{
+			compress_ptr comp = select_zlib_compressor(i, opt.z_levels[i]);
+			if(comp != nullptr){
+				compressors[i] = comp;
+				zlib_select |= (1 << (4 - i));
+			}
+		}
+	}
+
+	uint32_t fibo_select = opt.fibo_compress & ((1 << 5) - 1);
+	return (fibo_select << 5) | zlib_select;
+}
+
+void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream &outHeaderf, std::streambuf *inbuf, BUSHeader &h)
+{
+	constexpr size_t ROW_SIZE = sizeof(BUSData);
+
+	size_t N = opt.max_memory / ROW_SIZE;
+	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
+
+	compress_ptr compressors[5];
+	uint32_t compressor_selection = select_compressors(opt, compressors);
+	std::istream in(inbuf);
+	
+	bool parsed = parseHeader(in, h);
+	
+	compressed_BUSHeader comp_h;
+	comp_h.chunk_size = chunk_size;
+	comp_h.lossy_umi = opt.lossy_umi;
+	comp_h.fibo_zlib_compress = compressor_selection;
+
+	comp_h.extra_header.text = h.text;
+	comp_h.extra_header.version = h.version;
+	comp_h.extra_header.bclen = h.bclen;
+	comp_h.extra_header.umilen = h.umilen;
+
+	pfd_blocksize = opt.pfd_blocksize;
+	comp_h.pfd_blocksize = pfd_blocksize;
+
+	writeCompressedHeader(outHeaderf, comp_h);
+
+	std::vector<uint32_t> block_sizes;
+
+	// 6 * chunk_sizes is usually good enough, but we make it a multiple of 8;
+	size_t bufsize = (6 * chunk_size / 8) * 8;
+	size_t bufpos = 0;
+	size_t buf_checkpoint = 0;
+	size_t row_count = 0;
+
+	uint64_t block_counter = 0;
+	uint64_t block_header = 0;
+
+	try
+	{
+		BUSData *busdata = new BUSData[chunk_size];
+		char *buffer = new char[bufsize];
+		std::fill(buffer, buffer + bufsize, 0);
+		while (in.good())
+		{
+			in.read((char *)busdata, chunk_size * ROW_SIZE);
+			row_count = in.gcount() / ROW_SIZE;
+
+			for (int i_col = 0; i_col < 5; ++i_col)
+			{
+				bool success = compressors[i_col](busdata, row_count, buffer, bufsize, bufpos);
+				if (!success)
+				{
+					bufsize *= 2;
+
+					char *newbuf = new char[bufsize];
+					std::memcpy(newbuf, buffer, buf_checkpoint);
+					std::fill(newbuf + buf_checkpoint, newbuf + bufsize, 0);
+
+					delete[] buffer;
+					buffer = newbuf;
+
+					bufpos = buf_checkpoint;
+					--i_col;
+				}
+				buf_checkpoint = bufpos;
+			}
+
+			block_header = bufpos << 30;
+			block_header |= row_count;
+
+			outf.write((char *)&block_header, sizeof(block_header));
+			outf.write(buffer, bufpos);
+
+			std::fill(buffer, buffer + bufpos, 0);
+
+			block_sizes.push_back(bufpos);
+			bufpos = 0;
+			++block_counter;
+		}
+		block_header = 0;
+		outf.write((char *)&block_header, sizeof(block_header));
+
+		// todo: move these to index file or back of file
+		// todo: put first barcodes in index file as well
+
+		outHeaderf.seekp(0, std::ios_base::beg);
+		comp_h.last_chunk = row_count;
+		comp_h.n_chunks = block_counter - 1;
+
+		writeCompressedHeader(outHeaderf, comp_h);
+
+		delete[] busdata;
+		delete[] buffer;
+	}
+	catch (const std::bad_alloc &ex)
+	{
+		std::cerr << "Unable to allocate buffer\n"
+				  << ex.what() << std::endl;
+	}
 }
 template <typename T>
 void pack_ec_row_to_file(
@@ -1069,17 +1200,6 @@ void compress_ec_matrix(const std::string &filename, BUSHeader &h)
 void bustools_compress(const Bustools_opt &opt)
 {
 	BUSHeader h;
-	const size_t ROW_SIZE = sizeof(BUSData);
-	size_t N = opt.max_memory / ROW_SIZE;
-	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
-
-	void (*funcs[])(BUSData const *, const int, std::ostream &) = {&lossless_compress_umis, &lossy_compress_umis};
-	if (opt.lossy_umi)
-	{
-		std::cerr << "Lossy UMI compression has not been implemented, using lossless instead." << std::endl;
-	}
-
-	BUSData *p = new BUSData[chunk_size];
 
 	std::ofstream of;
 	std::streambuf *buf = nullptr;
@@ -1101,39 +1221,11 @@ void bustools_compress(const Bustools_opt &opt)
 	std::ostream outf(buf);
 	std::ostream outHeader(headerBuf);
 
-	bool fibonacci_select[5] = {
-		((opt.fibo_compress >> 4) & 1) > 0,
-		((opt.fibo_compress >> 3) & 1) > 0,
-		((opt.fibo_compress >> 2) & 1) > 0,
-		((opt.fibo_compress >> 1) & 1) > 0,
-		((opt.fibo_compress >> 0) & 1) > 0,
-	};
-
-	compress_ptr compressors[5]{
-		fibonacci_select[0] ? &compress_barcode_fibo<FIBO_t> : &compress_barcodes,
-		fibonacci_select[1] ? &compress_UMI_fibo<FIBO_t> : funcs[false && opt.lossy_umi],
-		fibonacci_select[2] ? &compress_EC_fibo<FIBO_t> : &compress_ecs,
-		fibonacci_select[3] ? &compress_count_fibo<FIBO_t> : &compress_counts,
-		fibonacci_select[4] ? &compress_flags_fibo<FIBO_t> : &compress_flags,
-	};
-
-	uint32_t zlib_select = 0;
-	for (int i = 0; i < 5; ++i)
-	{
-		compress_ptr compressor = select_zlib_compressor(i, opt.z_levels[i]);
-		if (compressor != nullptr)
-		{
-			compressors[i] = compressor;
-			zlib_select |= (1 << (4-i));
-		}
-	}
-
 	// TODO: should we really allow multiple files?
 	for (const auto &infn : opt.files)
 	{
 		std::streambuf *inbuf;
 		std::ifstream inf;
-		uint32_t n_rows = 0;
 
 		if (opt.stream_in)
 		{
@@ -1142,95 +1234,37 @@ void bustools_compress(const Bustools_opt &opt)
 		else
 		{
 			int target_file_type = get_target_file_type(infn);
-			switch (target_file_type)
-			{
-			case 0:
-				// compress busfile
-				std::cerr << "Compressing BUS file " << infn << "\n";
-				break;
-			case 1:
-				// decompress busz file
-				std::cerr << "Warning: The file " << infn << " is a compressed BUS file. Skipping.\n";
-				continue;
-			case 2:
-				std::cerr << "Compressing matrix file " << infn << '\n';
-				compress_ec_matrix(infn, h);
-				continue;
-			case 3:
-				// read compressed matrix.ecz
-				std::cerr << "Warning: The file " << infn << " is a compressed EC matrix file. Skipping.\n";
-				continue;
-			case -2:
-				std::cerr << "Error: Unable to open file " << infn << '\n';
-				continue;
-			default:
-
-				std::cerr << "Warning: Unknown file type. Skipping compression on" << infn << "\n";
-				continue;
-			}
 
 			inf.open(infn.c_str(), std::ios::binary);
 			inbuf = inf.rdbuf();
-		}
-		std::istream in(inbuf);
 
-		parseHeader(in, h);
-
-		compressed_BUSHeader comp_h;
-		comp_h.chunk_size = chunk_size;
-		comp_h.lossy_umi = false && opt.lossy_umi;
-		comp_h.fibo_zlib_compress = (opt.fibo_compress & ((1 << 5) - 1)) << 5;
-		comp_h.fibo_zlib_compress |= zlib_select;
-
-		comp_h.extra_header.text = h.text;
-		comp_h.extra_header.version = h.version;
-		comp_h.extra_header.bclen = h.bclen;
-		comp_h.extra_header.umilen = h.umilen;
-		writeCompressedHeader(outHeader, comp_h);
-
-		auto headerLen = outHeader.tellp();
-		if (!opt.stream_in)
-		{
-			n_rows = get_n_rows(in);
-			size_t n_blocks = (n_rows - 1) / chunk_size + 1;
-			size_t last_chunk_size = n_rows % chunk_size ?: chunk_size;
-			uint32_t *block_sizes = new uint32_t[n_blocks];
-			outHeader.write((char *)block_sizes, sizeof(uint32_t) * n_blocks);
-			delete[] block_sizes;
-		}
-
-		uint64_t block_counter = 0;
-		size_t last_row_count = 0;
-
-		std::vector<uint32_t> chunk_sizes;
-		uint32_t chunk_start = outf.tellp(), chunk_end;
-
-		while (in.good())
-		{
-			in.read((char *)p, chunk_size * ROW_SIZE);
-
-			size_t row_count = in.gcount() / ROW_SIZE;
-			last_row_count = row_count;
-			++block_counter;
-
-			for (int i_col = 0; i_col < 5; ++i_col)
+			switch (target_file_type)
 			{
-				compressors[i_col](p, row_count, outf);
+			// compress busfile
+			case 0:
+				std::cerr << "Compressing BUS file " << infn << "\n";
+				compress_busfile(opt, outf, outHeader, inbuf, h);
+				break;
+			// decompress busz file
+			case 1:
+				std::cerr << "Warning: The file " << infn << " is a compressed BUS file. Skipping.\n";
+				break;
+			case 2:
+				std::cerr << "Compressing matrix file " << infn << '\n';
+				compress_ec_matrix(infn, h);
+				break;
+			// read compressed matrix.ecz
+			case 3:
+				std::cerr << "Warning: The file " << infn << " is a compressed EC matrix file. Skipping.\n";
+				break;
+			case -2:
+				std::cerr << "Error: Unable to open file " << infn << '\n';
+				break;
+			default:
+
+				std::cerr << "Warning: Unknown file type. Skipping compression on" << infn << "\n";
+				break;
 			}
-
-			chunk_end = outf.tellp();
-			chunk_sizes.push_back(chunk_end - chunk_start);
-			chunk_start = chunk_end;
 		}
-
-		outHeader.seekp(0, std::ios_base::beg);
-
-		// Update the compressed header post compression.
-		comp_h.last_chunk = last_row_count;
-		comp_h.n_chunks = block_counter - 1;
-
-		writeCompressedHeader(outHeader, comp_h);
-		outHeader.write((char *)&chunk_sizes[0], sizeof(chunk_sizes[0]) * block_counter);
 	}
-	delete[] p;
 }
