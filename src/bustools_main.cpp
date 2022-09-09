@@ -1119,7 +1119,8 @@ bool check_ProgramOptions_compress(Bustools_opt &opt)
 
   // TODO: Memory requirements
 
-  if(opt.files.size() != 1){
+  // TODO: replace < with !=
+  if(opt.files.size() < 1){
     ret = false;
     if(opt.files.size() == 0){
       std::cerr << "Error: Missing BUS input files" << std::endl;
