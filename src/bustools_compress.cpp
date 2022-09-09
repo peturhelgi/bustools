@@ -79,7 +79,7 @@ bool fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, size_t &bi
 	++i;
 	while (remainder > 0)
 	{
-		i = std::upper_bound(fibo_begin, i+1, remainder) - 1;
+		i = std::upper_bound(fibo_begin, i, remainder) - 1;
 		next_bit_pos = bitpos + (i - fibo_begin);
 		buf_offset = (next_bit_pos / word_size) % bufsize;
 		bit_offset = next_bit_pos % word_size;
