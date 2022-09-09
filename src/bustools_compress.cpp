@@ -11,7 +11,7 @@
 #include "BUSData.h"
 #include "bustools_compress.h"
 
-constexpr size_t cache_size = 256;
+size_t pfd_blocksize = 1024;
 
 template <typename T>
 inline void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
@@ -41,27 +41,33 @@ inline void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
  * @param buf array of `bufsize` uint64_t. num is fibonacci-encoded in buf.
  * @param bitpos the bit position in buf where the next fibo encoding of num starts.
  * @param obuf the ostream buffer to write to.
+ * @return bool true iff encoding the current number does not write outside of buf
  */
 
+const auto fibo_begin = fibo64.begin();
+const auto fibo_end = fibo64.end();
+
 template <typename BUF_t>
-void fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, uint32_t &bitpos, std::ostream &obuf)
+bool fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, size_t &bitpos)
 {
 	constexpr uint32_t word_size = sizeof(BUF_t) * 8;
-	const uint32_t max_bitpos = bufsize * word_size;
+
+	const size_t max_bitpos = bufsize * word_size;
 	constexpr BUF_t ONE{1};
 
 	const uint32_t curr_byte_pos = bitpos / word_size;
-
-	const auto fibo_begin = fibo64.begin();
-	const auto fibo_end = fibo64.end();
 
 	uint64_t remainder = num;
 
 	// the ith fibonacci number is the largest fibo not greater than remainder
 	auto i = std::upper_bound(fibo_begin, fibo_end, remainder) - 1;
 
-
 	const uint32_t n_bits = (i - fibo_begin) + 2;
+
+	// Encoding the current number would write out of bounds of buf.
+	if (bitpos + n_bits > max_bitpos)
+		return false;
+
 	uint32_t next_bit_pos = bitpos + n_bits - 1,
 			 bit_offset = next_bit_pos % word_size,
 			 buf_offset = (next_bit_pos / word_size) % bufsize;
@@ -82,19 +88,8 @@ void fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, uint32_t &
 		buf[buf_offset] |= ONE << (word_size - 1 - bit_offset);
 		remainder -= *i;
 	}
-
-	// n_elems is the number of saturated elements in buf.
-	int n_elems = (bitpos + n_bits) / word_size - curr_byte_pos;
-
-	bitpos = (bitpos + n_bits) % max_bitpos;
-
-	// write fibo-encoded values to output buffer for concentrated elements in buf.
-	for (int p = 0; p < n_elems; ++p)
-	{
-		BUF_t &elem = buf[(curr_byte_pos + p) % bufsize];
-		obuf.write((char *)&elem, sizeof(BUF_t));
-		elem = 0;
-	}
+	bitpos += n_bits;
+	return true;
 }
 
 /**
@@ -182,6 +177,7 @@ void encode_pfd_block(
 		}
 
 		// pack_int may need more iterations if we do not have PFD_t as 64 bits.
+		// TODO: is it better to use pack_num?
 		do_increment_pointer = pack_int<uint32_t>(b_bits, elem, BUF, bitpos);
 		BUF += do_increment_pointer;
 		++idx;
@@ -200,7 +196,7 @@ void encode_pfd_block(
  * @param min_element The smallest element in `pfd_block`.
  * @param of The ostream to write out the encoding.
  */
-void new_pfd(
+size_t new_pfd(
 	const size_t block_size,
 	std::vector<int32_t> &pfd_block,
 	std::vector<int32_t> &index_gaps,
@@ -208,46 +204,44 @@ void new_pfd(
 	PFD_t *fibonacci_buf,
 	const size_t b_bits,
 	const int32_t min_element,
-	std::ostream &of)
+	size_t fibonacci_bufsize,
+	PFD_t *PFD_buf
+)
 {
-	fibonacci_buf[0] = 0;
-	fibonacci_buf[1] = 0;
-	fibonacci_buf[2] = 0;
-
+	bool success = true;
 	constexpr size_t wordsize = sizeof(PFD_t) * 8;
 
-	size_t buf_size = block_size / wordsize * b_bits;
-	PFD_t *PFD_buf = new PFD_t[buf_size];
+	size_t buf_size = block_size * b_bits / wordsize;
 	std::fill(PFD_buf, PFD_buf + buf_size, 0ULL);
 
-	PFD_t *const PFD_buf_begin = PFD_buf;
-	uint32_t bitpos{0};
+	size_t bitpos{0};
 
 	encode_pfd_block(pfd_block, index_gaps, exceptions, b_bits, min_element, PFD_buf);
 
 	size_t n_exceptions = index_gaps.size();
-	const size_t fibonacci_bufsize = 3;
-
 	// For more compact fibonacci encoding, we pack the fibo encoded values together
-	fiboEncode(b_bits + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
-	fiboEncode(min_element + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
-	fiboEncode(n_exceptions + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+	success &= fiboEncode(b_bits + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
+	success &= fiboEncode(min_element + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
+	success &= fiboEncode(n_exceptions + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 
 	for (const auto &el : index_gaps)
 	{
 		// we must increment by one, since the first index gap can be zero
-		fiboEncode(el + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(el + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 	for (const auto &el : exceptions)
 	{
 		// These are always > 0 since they contain the most significant bits of exception
-		fiboEncode(el, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(el, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+	size_t n_elems = bitpos / wordsize + (bitpos % wordsize > 0);
+	success &= (n_elems + buf_size <= fibonacci_bufsize);
 
-	of.write((char *)PFD_buf, buf_size * sizeof(PFD_t));
-	delete[] PFD_buf;
+	std::memcpy(fibonacci_buf + n_elems, PFD_buf, buf_size * sizeof(PFD_t) * success);
+	n_elems += buf_size;
+
+	return n_elems * success;
 }
 
 /**
@@ -285,19 +279,21 @@ void compute_pfd_params(
  * @param rows BUSData array, contains at least `row_count` elements
  * @param row_count The number of barcodes to compress.
  * @param of The ostream for writing the encoding to.
+ * @return bool true iff encoding does not go out of bounds of obuf
  */
-void compress_barcodes(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_barcodes(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	uint64_t barcode, last_bc = 0;
-	uint64_t runlen = 0;
+	bool success = true;
+	uint64_t barcode = 0,
+			 last_bc = 0,
+			 runlen = 0;
+	size_t wordsize = sizeof(FIBO_t) * 8;
 
-	constexpr size_t fibonacci_bufsize{cache_size / sizeof(FIBO_t)};
-	FIBO_t fibonacci_buf[fibonacci_bufsize];
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
+	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	size_t bitpos{0};
 
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0);
-	uint32_t bit_pos{0};
-
-	for (int i = 0; i < row_count; ++i)
+	for (int i = 0; i < row_count && success; ++i)
 	{
 		barcode = rows[i].barcode;
 
@@ -305,29 +301,33 @@ void compress_barcodes(BUSData const *const rows, const int row_count, std::ostr
 		barcode -= last_bc;
 
 		// Runlength encoding of zeros
-		if (barcode == 0) {
+		if (barcode == 0)
+		{
 			++runlen;
-		} else
+		}
+		else
 		{
 			// Increment values as fibo cannot encode 0
-			if (runlen) {
-				fiboEncode(1ULL, fibonacci_bufsize, fibonacci_buf, bit_pos, of);
-				fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bit_pos, of);
+			if (runlen)
+			{
+				success &= fiboEncode(1ULL, fibonacci_bufsize, fibonacci_buf, bitpos);
+				success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 				runlen = 0;
 			}
-			fiboEncode(barcode + 1, fibonacci_bufsize, fibonacci_buf, bit_pos, of);
+			success &= fiboEncode(barcode + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 		}
 		last_bc = rows[i].barcode;
 	}
 
 	// Take care of the last run of zeros in the delta-encoded barcodes
-	if (runlen) {
-		fiboEncode(1ULL, fibonacci_bufsize, fibonacci_buf, bit_pos, of);
-		fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bit_pos, of);
+	if (runlen)
+	{
+		success &= fiboEncode(1ULL, fibonacci_bufsize, fibonacci_buf, bitpos);
+		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	// Write out the last fibonacci element if applicable.
-	flush_fibonacci(fibonacci_buf, bit_pos, of);
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+	return success;
 }
 
 /**
@@ -336,45 +336,54 @@ void compress_barcodes(BUSData const *const rows, const int row_count, std::ostr
  * @param rows BUSData array, contains at least `row_count` elements
  * @param row_count The number of UMIs to compress.
  * @param of The ostream for writing the encoding to.
+ * @return bool true iff encoding does not go out of bounds of obuf
  */
-void lossless_compress_umis(BUSData const *const rows, const int row_count, std::ostream &of)
+bool lossless_compress_umis(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
+	bool success = true;
 	uint64_t last_bc = rows[0].barcode + 1,
 			 last_umi = 0,
 			 bc, umi, diff;
 
-	constexpr size_t fibonacci_bufsize{cache_size / sizeof(FIBO_t)};
-	FIBO_t fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
+	size_t wordsize = sizeof(FIBO_t) * 8;
 
-	uint32_t bitpos{0};
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
+	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	size_t bitpos{0};
+
 	uint64_t runlen{0};
 	const uint32_t RLE_val{0ULL};
 
-	for (int i = 0; i < row_count; ++i) {
+	for (int i = 0; i < row_count && success; ++i)
+	{
 		bc = rows[i].barcode;
 
 		// We must increment umi, since a UMI==0 will confuse the runlength decoder.
 		umi = rows[i].UMI + 1;
 
-		if (last_bc != bc) {
+		if (last_bc != bc)
+		{
 			last_umi = 0;
 		}
 
 		diff = umi - last_umi;
 
-		if (diff == RLE_val) {
+		if (diff == RLE_val)
+		{
 			++runlen;
 		}
 		else
 		{
 			// Increment values for fibonacci encoding.
-			if (runlen) {
-				fiboEncode(RLE_val + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
-				fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+			if (runlen)
+			{
+				success &= fiboEncode(RLE_val + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
+				success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
+
 				runlen = 0;
 			}
-			fiboEncode(diff + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+
+			success &= fiboEncode(diff + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 		}
 
 		last_umi = umi;
@@ -382,19 +391,22 @@ void lossless_compress_umis(BUSData const *const rows, const int row_count, std:
 	}
 
 	// Take care of the last run of zeros.
-	if (runlen) {
-		fiboEncode(RLE_val + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
-		fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+	if (runlen)
+	{
+		success &= fiboEncode(RLE_val + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
+		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	// Write last bytes if the fibonacci_buf has not been saturated.
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+
+	return success;
 }
 
-void lossy_compress_umis(BUSData const *const rows, const int row_count, std::ostream &of)
+bool lossy_compress_umis(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
+	bool success = true;
 	std::cerr << "BEWARE: Lossy compression\n";
-
+	return success;
 }
 
 /**
@@ -403,28 +415,39 @@ void lossy_compress_umis(BUSData const *const rows, const int row_count, std::os
  * @param rows BUSData array, contains at least `row_count` elements
  * @param row_count The number of ECs to compress.
  * @param of The ostream for writing the encoding to.
+ * @return bool true iff encoding does not go out of bounds of obuf
  */
-void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	size_t BLOCK_SIZE{512};
+	bool success = true;
+	size_t BLOCK_SIZE{pfd_blocksize};
+	size_t wordsize = sizeof(PFD_t) * 8;
+	size_t buf_offset = 0;
+
 	std::vector<int32_t> index_gaps,
 		pfd_scratch,
 		pfd_block,
 		exceptions;
 
+	// todo: We might be able to speed up by creating the primary array here.
+	size_t max_size_block = BLOCK_SIZE * sizeof(int32_t) / sizeof(PFD_t);
+	PFD_t *primary_block = new PFD_t[max_size_block];
+
+	exceptions.reserve(BLOCK_SIZE);
 	index_gaps.reserve(BLOCK_SIZE);
 	pfd_scratch.reserve(BLOCK_SIZE);
 	pfd_block.reserve(BLOCK_SIZE);
-	const size_t fibonacci_bufsize{3};
-	PFD_t fibonacci_buf[fibonacci_bufsize];
+
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(PFD_t);
+	PFD_t *fibonacci_buf = (PFD_t *)(obuf + global_bufpos);
 
 	int row_index{0};
 	int pfd_row_index{0};
+	size_t elems_written = 0;
+	size_t byte_count = 0;
 
-	while (row_index < row_count)
+	while (row_index < row_count && success)
 	{
-		std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0);
-
 		pfd_row_index = 0;
 		pfd_scratch.clear();
 		pfd_block.clear();
@@ -441,7 +464,13 @@ void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &
 		uint32_t b_bits = 0;
 		int32_t min_element = 0;
 		compute_pfd_params(BLOCK_SIZE, pfd_scratch, min_element, b_bits);
-		new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf, b_bits, min_element, of);
+
+		// we don't want to reset the fibonacci bytes, as this is or primary buffer.
+		elems_written = new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf + buf_offset, b_bits, min_element, fibonacci_bufsize - buf_offset, primary_block);
+
+		success &= (elems_written > 0);
+		buf_offset += elems_written;
+		byte_count += elems_written * sizeof(PFD_t);
 	}
 
 	pfd_block.clear();
@@ -449,7 +478,15 @@ void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &
 	// pfd_row_index is then the number of ints in the last block.
 	// We signal the end of chunk by encoding b_bits = 0, with the number of elements in the last block as min_element.
 	// Since pfd_block is cleared, no additional values will be written (except n_exceptions which adds 2 bits).
-	new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf, 0, pfd_row_index, of);
+
+	elems_written = new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf + buf_offset, 0, pfd_row_index, fibonacci_bufsize - buf_offset, primary_block);
+
+	success &= (elems_written > 0);
+	byte_count += elems_written * sizeof(PFD_t);
+	global_bufpos += byte_count;
+
+	delete[] primary_block;
+	return success;
 }
 
 /**
@@ -458,45 +495,49 @@ void compress_ecs(BUSData const *const rows, const int row_count, std::ostream &
  * @param rows BUSData array, contains at least `row_count` elements
  * @param row_count The number of counts to compress.
  * @param of The ostream for writing the encoding to.
+ * @return bool true iff encoding does not go out of bounds of obuf
  */
-void compress_counts(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_counts(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
+	bool success = true;
 	const uint32_t RLE_val{1UL};
 	uint32_t count,
-		runlen{0},
-		bitpos{0};
+		runlen{0};
 
-	constexpr size_t fibonacci_bufsize{cache_size / sizeof(FIBO_t)};
-	FIBO_t fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf+fibonacci_bufsize, 0ULL);
+	size_t wordsize = sizeof(FIBO_t) * 8;
 
-	for (int i = 0; i < row_count; ++i)
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
+	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	size_t bitpos{0};
+
+	for (int i = 0; i < row_count && success; ++i)
 	{
 		count = rows[i].count;
-
 		if (count == RLE_val)
 		{
 			++runlen;
-		} else {
-			if (runlen) {
+		}
+		else
+		{
+			if (runlen)
+			{
 				// Runlength-encode 1s.
-				fiboEncode(RLE_val, fibonacci_bufsize, fibonacci_buf, bitpos, of);
-				fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+				success &= fiboEncode(RLE_val, fibonacci_bufsize, fibonacci_buf, bitpos);
+				success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 				runlen = 0;
 			}
-
-			fiboEncode(count, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+			success &= fiboEncode(count, fibonacci_bufsize, fibonacci_buf, bitpos);
 		}
 	}
 	if (runlen)
 	{
 		// Runlength-encode last run of 1s.
-		fiboEncode(RLE_val, fibonacci_bufsize, fibonacci_buf, bitpos, of);
-		fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(RLE_val, fibonacci_bufsize, fibonacci_buf, bitpos);
+		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	// Write last bytes when if the fibonacci_buf has not been saturated.
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+	return success;
 }
 
 /**
@@ -505,208 +546,282 @@ void compress_counts(BUSData const *const rows, const int row_count, std::ostrea
  * @param rows BUSData array, contains at least `row_count` elements
  * @param row_count The number of counts to compress.
  * @param of The ostream for writing the encoding to.
+ * @return bool true iff encoding does not go out of bounds of obuf
  */
-void compress_flags(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_flags(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
+	bool success = true;
 	const uint32_t RLE_val{0UL};
 	uint32_t flag,
-		runlen{0},
-		bit_pos{0};
-	constexpr size_t bufsize{cache_size / sizeof(FIBO_t)};
-	FIBO_t buf[bufsize];
-	std::fill(buf, buf + bufsize, 0);
+		runlen{0};
 
-	for (int i = 0; i < row_count; ++i)
+	size_t wordsize = sizeof(FIBO_t) * 8;
+
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
+	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	size_t bitpos{0};
+	// don't need to fill with zeros as that is done prior.
+
+	for (int i = 0; i < row_count && success; ++i)
 	{
 		flag = rows[i].flags;
 
-		if (flag == RLE_val) {
+		if (flag == RLE_val)
+		{
 			++runlen;
-		} else {
+		}
+		else
+		{
 			// Increment values as fibo cannot encode 0
-			if (runlen) {
+			if (runlen)
+			{
 				// Runlength-encode 0s (incremented).
-				fiboEncode(RLE_val + 1, bufsize, buf, bit_pos, of);
-				fiboEncode(runlen, bufsize, buf, bit_pos, of);
+				success &= fiboEncode(RLE_val + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
+				success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 				runlen = 0;
 			}
-			fiboEncode(flag + 1, bufsize, buf, bit_pos, of);
+			success &= fiboEncode(flag + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 		}
 	}
 
-	if (runlen) {
+	if (runlen)
+	{
 		// Runlength-encode last run of 0s (incremented).
-		fiboEncode(RLE_val + 1, bufsize, buf, bit_pos, of);
-		fiboEncode(runlen, bufsize, buf, bit_pos, of);
+		success &= fiboEncode(RLE_val + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
+		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	// Write last bytes when if the fibonacci_buf has not been saturated.
-	flush_fibonacci(buf, bit_pos, of);
-}
-
-template <int comp_level>
-void compress_barcode_zlib(BUSData const *const rows, const int row_count, std::ostream &of)
-{
-	uint64_t *buf = new uint64_t[row_count];
-	for (int i = 0; i < row_count; ++i)
-	{
-		buf[i] = rows[i].barcode;
-	}
-	uLongf src_len = row_count * sizeof(uint64_t);
-	uLongf dest_len = row_count * sizeof(uint64_t);
-	Bytef *dest = new Bytef[dest_len];
-	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
-	if (status == Z_OK)
-		of.write((char *)dest, dest_len * sizeof(Bytef));
-	else
-	{
-		std::cerr << "zlib err: " << status << '\n';
-	}
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+	return success;
 }
 
 template <int comp_level>
-void compress_UMI_zlib(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_barcode_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	uint64_t *buf = new uint64_t[row_count];
+	bool success = true;
+	typedef uint64_t T;
+
+	T *src_buf = new T[row_count];
 	for (int i = 0; i < row_count; ++i)
 	{
-		buf[i] = rows[i].UMI;
+		src_buf[i] = rows[i].barcode;
 	}
-	uLongf src_len = row_count * sizeof(uint64_t);
-	uLongf dest_len = row_count * sizeof(uint64_t);
-	Bytef *dest = new Bytef[dest_len];
-	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
-	if (status == Z_OK)
-		of.write((char *)dest, dest_len * sizeof(Bytef));
-	else
+
+	uLongf src_len = row_count * sizeof(T);
+	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
+
+	Bytef *dest = (Bytef *)(obuf + global_bufpos);
+	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
+	if (status != Z_OK)
 	{
+		success = false;
 		std::cerr << "zlib err: " << status << '\n';
 	}
+
+	global_bufpos += dest_len;
+	delete[] src_buf;
+	return success;
 }
 
 template <int comp_level>
-void compress_EC_zlib(BUSData const * const rows, const int row_count, std::ostream &of)
+bool compress_UMI_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	int32_t *buf = new int32_t[row_count];
-	for (int i = 0; i < row_count; ++i){
-		buf[i] = rows[i].ec;
-	}
-	uLongf src_len = row_count * sizeof(int32_t);
-	uLongf dest_len = row_count * sizeof(int32_t);
-	Bytef *dest = new Bytef[dest_len];
-	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
-	if (status == Z_OK)
-		of.write((char *)dest, dest_len * sizeof(Bytef));
-	else
+	bool success = true;
+	typedef uint64_t T;
+
+	T *src_buf = new T[row_count];
+	for (int i = 0; i < row_count; ++i)
 	{
+		src_buf[i] = rows[i].UMI;
+	}
+	uLongf src_len = row_count * sizeof(T);
+	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
+
+	Bytef *dest = (Bytef *)(obuf + global_bufpos);
+	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
+	if (status != Z_OK)
+	{
+		success = false;
 		std::cerr << "zlib err: " << status << '\n';
 	}
+
+	global_bufpos += dest_len;
+	delete[] src_buf;
+	return success;
 }
 
-template<int comp_level>
-void compress_count_zlib(BUSData const * const rows, const int row_count, std::ostream &of)
+template <int comp_level>
+bool compress_EC_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	uint32_t *buf = new uint32_t[row_count];
-	for (int i = 0; i < row_count; ++i){
-		buf[i] = rows[i].count;
-	}
-	uLongf src_len = row_count * sizeof(uint32_t);
-	uLongf dest_len = row_count * sizeof(uint32_t);
-	Bytef *dest = new Bytef[dest_len];
-	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
-	if (status == Z_OK)
-		of.write((char *)dest, dest_len * sizeof(Bytef));
-	else
+	bool success = true;
+	typedef int32_t T;
+
+	T *src_buf = new T[row_count];
+	for (int i = 0; i < row_count; ++i)
 	{
+		src_buf[i] = rows[i].ec;
+	}
+	uLongf src_len = row_count * sizeof(T);
+	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
+
+	Bytef *dest = (Bytef *)(obuf + global_bufpos);
+	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
+	if (status != Z_OK)
+	{
+		success = false;
 		std::cerr << "zlib err: " << status << '\n';
 	}
+
+	global_bufpos += dest_len;
+	delete[] src_buf;
+	return success;
 }
-template<int comp_level>
-void compress_flags_zlib(BUSData const * const rows, const int row_count, std::ostream &of)
+
+template <int comp_level>
+bool compress_count_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	uint32_t *buf = new uint32_t[row_count];
-	for (int i = 0; i < row_count; ++i){
-		buf[i] = rows[i].flags;
-	}
-	uLongf src_len = row_count * sizeof(uint32_t);
-	uLongf dest_len = row_count * sizeof(uint32_t);
-	Bytef *dest = new Bytef[dest_len];
-	int status = compress2(dest, &dest_len, (Bytef *)buf, src_len, comp_level);
-	if (status == Z_OK)
-		of.write((char *)dest, dest_len * sizeof(Bytef));
-	else
+	bool success = true;
+	typedef uint32_t T;
+
+	T *src_buf = new T[row_count];
+	for (int i = 0; i < row_count; ++i)
 	{
+		src_buf[i] = rows[i].count;
+	}
+	uLongf src_len = row_count * sizeof(T);
+	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
+
+	Bytef *dest = (Bytef *)(obuf + global_bufpos);
+	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
+	if (status != Z_OK)
+	{
+		success = false;
 		std::cerr << "zlib err: " << status << '\n';
 	}
+
+	global_bufpos += dest_len;
+	delete[] src_buf;
+	return success;
+}
+template <int comp_level>
+bool compress_flags_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
+{
+	bool success = true;
+
+	typedef uint32_t T;
+	T *src_buf = new T[row_count];
+	for (int i = 0; i < row_count; ++i)
+	{
+		src_buf[i] = rows[i].flags;
+	}
+	uLongf src_len = row_count * sizeof(T);
+	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
+
+	Bytef *dest = (Bytef *)(obuf + global_bufpos);
+	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
+	if (status != Z_OK)
+	{
+		std::cerr << "zlib err: " << status << '\n';
+		success = false;
+	}
+
+	global_bufpos += dest_len;
+	delete[] src_buf;
+	return success;
 }
 
 template <typename T>
-void compress_barcode_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_barcode_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
-	T fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
-	uint32_t bitpos{0};
+	bool success = true;
+	size_t bitpos{0};
+	size_t wordsize = sizeof(T) * 8;
+
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
+
 	for (int i = 0; i < row_count; ++i)
 	{
-		fiboEncode(rows[i].barcode + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(rows[i].barcode + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
+	return success;
 }
 template <typename T>
-void compress_UMI_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_UMI_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
-	T fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
-	uint32_t bitpos{0};
+	bool success = true;
+	size_t bitpos{0};
+	size_t wordsize = sizeof(T) * 8;
+
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
+
 	for (int i = 0; i < row_count; ++i)
 	{
-		fiboEncode(rows[i].UMI + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(rows[i].UMI + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
+	return success;
 }
 template <typename T>
-void compress_EC_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_EC_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
-	T fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
-	uint32_t bitpos{0};
+	bool success = true;
+	size_t bitpos{0};
+	size_t wordsize = sizeof(T) * 8;
+
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
+
 	for (int i = 0; i < row_count; ++i)
 	{
-		fiboEncode(rows[i].ec + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(rows[i].ec + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
+	return success;
 }
 template <typename T>
-void compress_count_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_count_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
-	T fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
-	uint32_t bitpos{0};
+	bool success = true;
+	size_t bitpos{0};
+	size_t wordsize = sizeof(T) * 8;
+
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
+
 	for (int i = 0; i < row_count; ++i)
 	{
-		fiboEncode(rows[i].count, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(rows[i].count, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
+	return success;
 }
 template <typename T>
-void compress_flags_fibo(BUSData const *const rows, const int row_count, std::ostream &of)
+bool compress_flags_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
-	constexpr size_t fibonacci_bufsize(cache_size / sizeof(T));
-	T fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0U);
-	uint32_t bitpos{0};
+	bool success = true;
+	size_t bitpos{0};
+	size_t wordsize = sizeof(T) * 8;
+
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
+
 	for (int i = 0; i < row_count; ++i)
 	{
-		fiboEncode(rows[i].flags + 1, fibonacci_bufsize, fibonacci_buf, bitpos, of);
+		success &= fiboEncode(rows[i].flags + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
-	flush_fibonacci(fibonacci_buf, bitpos, of);
+
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
+	return success;
 }
 
-typedef void (*compress_ptr)(BUSData const *, const int, std::ostream &);
+typedef bool (*compress_ptr)(BUSData const *, const int, char *, const size_t &, size_t &);
 
 compress_ptr select_zlib_compressor(int col, int lvl)
 {
@@ -853,9 +968,10 @@ void pack_ec_row_to_file(
 	const std::vector<int32_t> &ecs,
 	const size_t bufsize,
 	T *buf,
-	uint32_t &bitpos,
+	size_t &bitpos,
 	std::ostream &of)
 {
+	bool success = true;
 	// Diffs must be incremented since ec == 0 is valid, although rare.
 	constexpr int32_t RL_VAL{2};
 
@@ -865,7 +981,7 @@ void pack_ec_row_to_file(
 		last_ec{0},
 		runlen{0};
 
-	fiboEncode<T>(n_elems, bufsize, buf, bitpos, of);
+	success &= fiboEncode<T>(n_elems, bufsize, buf, bitpos);
 
 	for (const auto &ec : ecs)
 	{
@@ -878,19 +994,19 @@ void pack_ec_row_to_file(
 		{
 			if (runlen)
 			{
-				fiboEncode<T>(RL_VAL, bufsize, buf, bitpos, of);
-				fiboEncode<T>(runlen, bufsize, buf, bitpos, of);
+				success &= fiboEncode<T>(RL_VAL, bufsize, buf, bitpos);
+				success &= fiboEncode<T>(runlen, bufsize, buf, bitpos);
 
 				runlen = 0;
 			}
-			fiboEncode<T>(diff, bufsize, buf, bitpos, of);
+			success &= fiboEncode<T>(diff, bufsize, buf, bitpos);
 		}
 		last_ec = ec;
 	}
 	if (runlen)
 	{
-		fiboEncode<T>(RL_VAL, bufsize, buf, bitpos, of);
-		fiboEncode<T>(runlen, bufsize, buf, bitpos, of);
+		success &= fiboEncode<T>(RL_VAL, bufsize, buf, bitpos);
+		success &= fiboEncode<T>(runlen, bufsize, buf, bitpos);
 	}
 }
 
@@ -938,7 +1054,7 @@ void compress_ec_matrix(const std::string &filename, BUSHeader &h)
 	num_identities = ecs.size() - num_identities;
 	of.write((char *)&num_identities, sizeof(num_identities));
 
-	uint32_t bitpos{0};
+	size_t bitpos{0};
 	const auto ecs_end = ecs.end();
 
 	for (auto ecs_it = ecs.begin() + lo + 1; ecs_it < ecs_end; ++ecs_it)
@@ -946,6 +1062,7 @@ void compress_ec_matrix(const std::string &filename, BUSHeader &h)
 		auto &ecs_list = *ecs_it;
 		pack_ec_row_to_file(ecs_list, fibonacci_bufsize, fibonacci_buf, bitpos, of);
 	}
+
 	flush_fibonacci<T>(fibonacci_buf, bitpos, of);
 }
 
