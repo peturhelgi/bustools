@@ -211,7 +211,7 @@ size_t new_pfd(
 	bool success = true;
 	constexpr size_t wordsize = sizeof(PFD_t) * 8;
 
-	size_t buf_size = block_size * b_bits / wordsize;
+	size_t buf_size = (block_size * b_bits) / wordsize;
 	std::fill(PFD_buf, PFD_buf + buf_size, 0ULL);
 
 	size_t bitpos{0};
@@ -271,6 +271,7 @@ void compute_pfd_params(
 
 	int32_t nth_max_element = pfd_scratch[nth_elem_idx];
 	b_bits = 31 - __builtin_clrsb(nth_max_element - min_element);
+	b_bits = b_bits ?: 1;
 }
 
 /**
@@ -430,7 +431,7 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 		exceptions;
 
 	// todo: We might be able to speed up by creating the primary array here.
-	size_t max_size_block = BLOCK_SIZE * sizeof(int32_t) / sizeof(PFD_t);
+	size_t max_size_block = BLOCK_SIZE * sizeof(int32_t);
 	PFD_t *primary_block = new PFD_t[max_size_block];
 
 	exceptions.reserve(BLOCK_SIZE);
@@ -479,7 +480,17 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 	// We signal the end of chunk by encoding b_bits = 0, with the number of elements in the last block as min_element.
 	// Since pfd_block is cleared, no additional values will be written (except n_exceptions which adds 2 bits).
 
-	elems_written = new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf + buf_offset, 0, pfd_row_index, fibonacci_bufsize - buf_offset, primary_block);
+	elems_written = new_pfd(
+		BLOCK_SIZE,
+		pfd_block,
+		index_gaps,
+		exceptions,
+		fibonacci_buf + buf_offset,
+		0, // b_bits = 0 ensures we stop decompressing ECs
+		pfd_row_index,
+		fibonacci_bufsize - buf_offset, 
+		primary_block
+	);
 
 	success &= (elems_written > 0);
 	byte_count += elems_written * sizeof(PFD_t);
