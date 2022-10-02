@@ -129,18 +129,11 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
   char target[5] = "BUS\1";
   target[4] = '\0';
   magic[4] = '\0';
-  inf.read((char *)(&magic[0]), 4);
-
-  // The magic bytes for a compressed header is "BUS\1"
-  if (std::strcmp(&magic[0], target) != 0)
-  {
-    std::cerr << "Invalid header magic\n";
+  BUSHeader &header = compheader.extra_header;
+  inf.read(magic, 4);
+  if(std::strcmp(magic, "BUS\1") != 0){
     return false;
   }
-
-  // The following are the information contained in the uncompressed header
-  BUSHeader &header = compheader.extra_header;
-
   inf.read((char *)(&header.version), sizeof(header.version));
   if (header.version != BUSFORMAT_VERSION)
   {
@@ -156,6 +149,12 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
   header.text.assign(t);
   delete[] t;
 
+  // The magic bytes for a compressed header is "BUS\1"
+  if (std::strcmp(&magic[0], target) != 0)
+  {
+    std::cerr << "Invalid header magic\n";
+    return false;
+  }
   // We store the compressed_header-specific information after the regular header
   inf.read((char *)&compheader.chunk_size, sizeof(compheader.chunk_size));
   inf.read((char *)&compheader.pfd_blocksize, sizeof(compheader.pfd_blocksize));
