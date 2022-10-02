@@ -933,38 +933,6 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 	}
 }
 
-int get_target_file_type(const std::string &filename)
-{
-	std::ifstream inf(filename);
-	if (!inf.is_open())
-	{
-		return -2;
-	}
-	char magic[5];
-	int ret = -1;
-	inf.read((char *)&magic[0], 4);
-
-	magic[4] = '\0';
-	if (std::strcmp(&magic[0], "BUS\0") == 0)
-	{
-		return 0;
-	}
-	if (std::strcmp(&magic[0], "BUS\1\0") == 0)
-	{
-		return 1;
-	}
-
-	if (std::strcmp(&magic[0], "0\t0\n") == 0)
-	{
-		return 2;
-	}
-
-	if (std::strcmp(&magic[0], "BEC\0") == 0)
-	{
-		return 3;
-	}
-	return -1;
-}
 
 uint32_t select_compressors(const Bustools_opt &opt, compress_ptr compressors[5]){
 	

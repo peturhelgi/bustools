@@ -73,6 +73,33 @@ uint64_t stringToBinary(const char* s, const size_t len, uint32_t &flag) {
 }
 
 
+int identifyParseHeader(std::istream &inf, BUSHeader &header, compressed_BUSHeader &comp_header){
+  int ret = -1;
+  char magic[5];
+
+  magic[4] = '\0';
+
+  inf.read(magic, 4);
+  for (int i = 0; i < 4; ++i){
+    inf.putback(magic[3 - i]);
+  }
+
+  if (std::strcmp(magic, "BUS\0") == 0)
+  {
+    // parseHeader
+    return BUSFILE_TYPE::BUSFILE * parseHeader(inf, header);
+  }
+  else if (std::strcmp(magic, "BUS\1") == 0){
+    // parse compressedHeader
+    return BUSFILE_TYPE::BUSFILE_COMPRESED * parseCompressedHeader(inf, comp_header);
+  }
+  else if (std::strcmp(magic, "BEC\0") == 0){
+    // compressed matrix.ecz file
+    return BUSFILE_TYPE::EC_MATRIX_COMPRESSED;
+  }
+  return BUSFILE_TYPE::EC_MATRIX;
+}
+
 bool parseHeader(std::istream &inf, BUSHeader &header) {
   char magic[4];  
   inf.read((char*)(&magic[0]), 4);
