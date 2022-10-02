@@ -110,7 +110,7 @@ DEST_T decodeFibonacciStream(
 		bufpos = 0;
 	}
 
-	while (!(last_bit && bit) && bufpos >= bufsize)
+	while (!(last_bit && bit) && bufpos <= bufsize)
 	{
 		// 0 <= bufpos < bufsize if EOF is not reached
 		// 0 <= bitpos < wordsize
@@ -128,6 +128,7 @@ DEST_T decodeFibonacciStream(
 			bufpos = 0;
 		}
 	}
+
 	return num * (last_bit && bit);
 }
 
@@ -779,21 +780,20 @@ int32_t decompress_ec_row(
 )
 {
 	constexpr uint32_t RL_VAL{1};
-	uint32_t n_elems = decodeFibonacciStream<T, uint32_t>(buf, bufsize, bitpos, bufpos, in);
+	uint32_t n_elems = fiboDecodeSingle<T, uint32_t>(buf, bufsize, bitpos, bufpos);
 
 	int i_elem{0};
 	uint32_t ec{0};
 	uint32_t runlen{0};
+	vec.clear();
 
 	vec.resize(n_elems);
-
 	while (i_elem < n_elems)
 	{
-		uint32_t diff = decodeFibonacciStream<T, uint32_t>(buf, bufsize, bitpos, bufpos, in) - 1;
-
+		uint32_t diff = fiboDecodeSingle<T, uint32_t>(buf, bufsize, bitpos, bufpos) - 1;
 		if (diff == RL_VAL)
 		{
-			runlen = decodeFibonacciStream<T, uint32_t>(buf, bufsize, bitpos, bufpos, in);
+			runlen = fiboDecodeSingle<T, uint32_t>(buf, bufsize, bitpos, bufpos);
 
 			for (int j = 0; j < runlen; ++j)
 			{
@@ -806,24 +806,35 @@ int32_t decompress_ec_row(
 			vec[i_elem++] = ec;
 		}
 	}
+
+	if(n_elems != vec.size()){
+		std::cerr << "Vec size mismatch! " << n_elems << " != " << vec.size() << std::endl;
+		return 0;
+	}
 	return n_elems;
 }
 
-template <typename myfibo_t = uint16_t>
-bool decompress_matrix(const std::string &filename, BUSHeader &header, size_t bufsize=100000){
-	std::ifstream inf(filename.c_str(), std::ios_base::binary);
-
+/**
+ * @brief Decompress a compress matrix file
+ * pre: inf.tellg() == 4
+ * 		the first 4 bytes of the stream were BEC\0
+ * @tparam T 
+ * @param inf 
+ * @param header 
+ * @param bufsize 
+ * @return bool 
+ */
+template <typename T = uint16_t>
+bool decompress_matrix(std::istream &inf, BUSHeader &header, size_t bufsize=100000)
+{
 	char magic[4];
-	inf.read((char *)magic, 4);
-
-	if (std::strcmp(magic, "BEC\0") != 0)
-	{
+	inf.read(magic, 4);
+	if(std::strcmp(magic, "BEC\0")) {
 		return false;
 	}
 
 	// Number of rows mapping to themselves.
 	uint32_t num_identities{0};
-
 	// Number of rows not mapping to themselves.
 	uint32_t num_rows{0};
 
@@ -832,32 +843,55 @@ bool decompress_matrix(const std::string &filename, BUSHeader &header, size_t bu
 
 	std::vector<std::vector<int32_t>> &ecs = header.ecs;
 	ecs.resize(num_identities);
+
 	int32_t ec_idx = 0;
 	for (; ec_idx < num_identities; ++ec_idx)
 	{
 		ecs[ec_idx].push_back(ec_idx);
 	}
 
+	uint64_t block_header = 1;
+	bufsize = 600000;
+	uint64_t block_size_bytes = 0;
+	uint64_t block_count = 0;
+	uint64_t row_count_mask = (1 << 30) - 1;
 	try
 	{
-		myfibo_t *readbuf = new myfibo_t[bufsize];
-		std::fill(readbuf, readbuf + bufsize, 0);
-		size_t bitpos = 0,
-			   bufpos = 0;
-
-		inf.read((char *)readbuf, bufsize * sizeof(myfibo_t));
-		bufsize = inf.gcount() / sizeof(myfibo_t);
-
-		int32_t n_elems = 0;
+		T *buffer = new T[bufsize];
 		std::vector<int32_t> vec;
-		for (int i = 0; i < num_rows; ++i)
+		vec.reserve(10000);
+
+		size_t bitpos = 0;
+		size_t bufpos = 0;
+		int block_counter = 0;
+		
+		inf.read((char *)&block_header, sizeof(block_header));
+		while (block_header)
 		{
-			vec.clear();
-			n_elems = decompress_ec_row(vec, bufsize, readbuf, inf, bitpos, bufpos);
-			ecs.push_back(std::move(vec));
-			++ec_idx;
+			block_size_bytes = block_header >> 30;
+			block_count = block_header & row_count_mask;
+
+			if (block_size_bytes > bufsize * sizeof(T)){
+				bufsize = block_size_bytes / sizeof(T);
+				delete[] buffer;
+				buffer = new T[bufsize];
+			}
+
+			inf.read((char *)buffer, block_size_bytes);
+			for (int i = 0; i < block_count; ++i)
+			{
+				vec.clear();
+				int32_t n_elems = decompress_ec_row(vec, bufsize, buffer, inf, bitpos, bufpos);
+				ecs.push_back(std::move(vec));
+			}
+
+			inf.read((char *)&block_header, sizeof(block_header));
+			bitpos = 0;
+			bufpos = 0;
+			block_counter++;
 		}
-		delete[] readbuf;
+
+		delete[] buffer;
 	}
 	catch (const std::bad_alloc &ex)
 	{

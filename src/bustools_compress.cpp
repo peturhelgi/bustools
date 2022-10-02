@@ -1095,7 +1095,7 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	}
 }
 template <typename T>
-void pack_ec_row_to_file(
+bool pack_ec_row_to_file(
 	const std::vector<int32_t> &ecs,
 	const size_t bufsize,
 	T *buf,
@@ -1113,9 +1113,11 @@ void pack_ec_row_to_file(
 		runlen{0};
 
 	success &= fiboEncode<T>(n_elems, bufsize, buf, bitpos);
-
-	for (const auto &ec : ecs)
+	
+	const auto ecs_end = ecs.end();
+	for (auto ec_it = ecs.begin(); success && ec_it != ecs_end; ++ec_it)
 	{
+		auto &ec = *ec_it;
 		diff = ec - last_ec + 1;
 		if (diff == RL_VAL)
 		{
@@ -1134,19 +1136,21 @@ void pack_ec_row_to_file(
 		}
 		last_ec = ec;
 	}
-	if (runlen)
+	if (runlen && success)
 	{
 		success &= fiboEncode<T>(RL_VAL, bufsize, buf, bitpos);
 		success &= fiboEncode<T>(runlen, bufsize, buf, bitpos);
 	}
+
+	return success;
 }
 
 template <typename T = uint16_t>
-void compress_ec_matrix(const std::string &filename, BUSHeader &h)
+void compress_ec_matrix(std::istream &in, BUSHeader &h, const Bustools_opt &opt, std::ostream &of)
 {
 	// first m rows map to themselves. In the file, we count how many such rows there are.
 	// For the rest, we don't need the ids, only the delta+runlen-1+int-coding of the ECs
-	parseECs(filename, h);
+	parseECs_stream(in, h);
 	std::cerr << "Done parsing ecs" << std::endl;
 	auto &ecs = h.ecs;
 
@@ -1169,37 +1173,87 @@ void compress_ec_matrix(const std::string &filename, BUSHeader &h)
 		}
 	}
 
+	size_t bufsize{600000};
+	T* fibonacci_buf = new T[bufsize];
+	std::fill(fibonacci_buf, fibonacci_buf + bufsize, 0);
+	const size_t wordsize = sizeof(T) * 8;
+
 	uint32_t num_identities = lo + 1;
-	std::string filename_out = filename + 'z';
-
-	constexpr size_t fibonacci_bufsize{24 / sizeof(T)};
-
-	T fibonacci_buf[fibonacci_bufsize];
-	std::fill(fibonacci_buf, fibonacci_buf + fibonacci_bufsize, 0);
-
-	std::ofstream out(filename_out.c_str(), std::ios::binary);
-	std::ostream of(out.rdbuf());
-
+	uint32_t num_other = ecs.size() - num_identities;
+	std::cerr << "num_identities " << num_identities << '\n';
+	std::cerr << "num lines: " << h.ecs.size() << '\n';
 	of.write("BEC\0", 4);
+
 	of.write((char *)&num_identities, sizeof(num_identities));
-	num_identities = ecs.size() - num_identities;
-	of.write((char *)&num_identities, sizeof(num_identities));
+	of.write((char *)&num_other, sizeof(num_other));
 
 	size_t bitpos{0};
+	uint32_t row_count = 0;
+	size_t checkpoint = 0;
+	uint64_t block_header = 0;
+
 	const auto ecs_end = ecs.end();
-
-	for (auto ecs_it = ecs.begin() + lo + 1; ecs_it < ecs_end; ++ecs_it)
+	auto ecs_it = ecs.begin() + lo + 1;
+	int i_row = 0;
+	uint64_t total_rows = 0;
+	try
 	{
-		auto &ecs_list = *ecs_it;
-		pack_ec_row_to_file(ecs_list, fibonacci_bufsize, fibonacci_buf, bitpos, of);
-	}
+		while (ecs_it < ecs_end)
+		{
+			while(ecs_it < ecs_end && row_count < opt.chunk_size){
+				auto &ecs_list = *ecs_it;
+				bool success = pack_ec_row_to_file(ecs_list, bufsize, fibonacci_buf, bitpos, of);
+				if(!success)
+				{
+					size_t checkpoint_elem = checkpoint / wordsize + (checkpoint % wordsize > 0);
+					T *tmp_buf = new T[bufsize * 2];
 
-	flush_fibonacci<T>(fibonacci_buf, bitpos, of);
+					std::fill(tmp_buf, tmp_buf + bufsize*2, 0);
+					std::memcpy(tmp_buf, fibonacci_buf, checkpoint_elem * sizeof(T));
+					
+					bufsize *= 2;
+
+					delete[] fibonacci_buf;
+					fibonacci_buf = tmp_buf;
+					bitpos = checkpoint;
+					continue;
+				}
+				
+				checkpoint = bitpos;
+				++ecs_it;
+				++row_count;
+				++i_row;
+				
+			}
+			total_rows += row_count;
+			uint64_t n_bytes = (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
+			
+
+			block_header = n_bytes << 30;
+			block_header |= row_count;
+
+			of.write((char *)&block_header, sizeof(block_header));
+			of.write((char *)fibonacci_buf, n_bytes);
+
+			std::fill(fibonacci_buf, fibonacci_buf + bufsize, 0);
+			row_count = 0;
+			bitpos = 0;
+		}
+	}
+	catch (const std::bad_alloc &ex){
+		std::cerr << "Unable to allocate " << bufsize << " sized buffer\n";
+		std::cerr << ex.what() << std::endl;
+	}
+	block_header = 0;
+	of.write((char *)&block_header, sizeof(block_header));
+
+	delete[] fibonacci_buf;
 }
 
 void bustools_compress(const Bustools_opt &opt)
 {
 	BUSHeader h;
+	compressed_BUSHeader comph;
 
 	std::ofstream of;
 	std::streambuf *buf = nullptr;
@@ -1208,8 +1262,7 @@ void bustools_compress(const Bustools_opt &opt)
 	if (opt.stream_out)
 	{
 		buf = std::cout.rdbuf();
-		of.open(opt.temp_files);
-		headerBuf = of.rdbuf();
+		headerBuf = buf;
 	}
 	else
 	{
