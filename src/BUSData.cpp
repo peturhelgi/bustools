@@ -167,6 +167,41 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
   return true;
 }
 
+bool parseECs_stream(std::istream &in, BUSHeader &header){
+  auto &ecs = header.ecs;
+  std::string line, t;
+  line.reserve(10000);
+
+  std::vector<int32_t> c;
+
+  int i = 0;
+  bool has_reached = false;
+  while (std::getline(in, line))
+  {
+    c.clear();
+    int ec = -1;
+    if(line.size() == 0) {
+      continue;
+    }
+    std::stringstream ss(line);
+    ss >> ec;
+    assert(ec == i);
+    while(std::getline(ss, t, ',')){
+      c.push_back(std::stoi(t));
+    }
+    if(!has_reached){
+      has_reached |= !(c.size() == 1 && c[0] == i);
+      if(has_reached){
+        std::cerr << "first line is " << i << '\n';
+      }
+    }
+
+    ecs.push_back(std::move(c));
+    ++i;
+  }
+  return true;
+}
+
 bool parseECs(const std::string &filename, BUSHeader &header) {
   auto &ecs = header.ecs; 
   std::ifstream inf(filename.c_str());

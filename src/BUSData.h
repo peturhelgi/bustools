@@ -53,6 +53,13 @@ struct BUSData {
   BUSData() : barcode(0), UMI(0), ec(-1), count(0), flags(0), pad(0) {}
 };
 
+enum BUSFILE_TYPE
+{
+	BUSFILE = 1,
+	BUSFILE_COMPRESED = 2,
+	EC_MATRIX = 3,
+	EC_MATRIX_COMPRESSED = 4
+};
 
 bool parseHeader(std::istream &inf, BUSHeader &header);
 bool writeHeader(std::ostream &outf, const BUSHeader &header);
@@ -61,7 +68,7 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &header);
 bool writeCompressedHeader(std::ostream &inf, const compressed_BUSHeader &header);
 int identifyParseHeader(std::istream &inf, BUSHeader &header, compressed_BUSHeader &comp_header);
 
-
+bool parseECs_stream(std::istream &in, BUSHeader &header);
 bool parseECs(const std::string &filename, BUSHeader &header);
 bool writeECs(const std::string &filename, const BUSHeader &header);
 bool writeGenes(const std::string &filename, const std::unordered_map<std::string, int32_t>  &genenames);
