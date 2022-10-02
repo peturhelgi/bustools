@@ -910,6 +910,7 @@ bool decompress_matrix(std::istream &inf, BUSHeader &header, size_t bufsize=1000
 void bustools_decompress(const Bustools_opt &opt)
 {
 	compressed_BUSHeader comp_header;
+	BUSHeader header;
 	std::ofstream of;
 	std::streambuf *buf = nullptr;
 
@@ -935,40 +936,32 @@ void bustools_decompress(const Bustools_opt &opt)
 		}
 		else
 		{
-			int target_file_type = get_target_file_type(infn);
-			switch (target_file_type)
-			{
-			case 0:
-				std::cerr << "Warning: The file " << infn << " is an uncompressed BUS file. Skipping\n" ;
-				continue;
-			case 1:
-				// compressed bus file
-				break;
-			case 2:
-				std::cerr << "Warning: The file " << infn << " is an uncompressed EC matrix file. Skipping\n";
-				continue;
-			case 3:
-				std::cerr << "Decompressing matrix\n";
-				decompress_matrix(infn, comp_header.extra_header);
-				continue;
-			case -2:
-				std::cerr << "Error: Unable to open file " << infn << '\n';
-				continue;
-			default:
-				std::cerr << "Warning: Unknown file type. Skipping.\n";
-				continue;;
-			}
-
 			inf.open(infn.c_str(), std::ios::binary);
 			inbuf = inf.rdbuf();
 		}
-
 		std::istream in(inbuf);
 
-		if (!parseCompressedHeader(in, comp_header))
+		int target_file_type = identifyParseHeader(in, header, comp_header);
+		switch (target_file_type)
 		{
-			std::cerr << "Error: Failed to parse header.\n";
-			return;
+		case 1:
+			std::cerr << "Warning: The file " << infn << " is an uncompressed BUS file. Skipping\n" ;
+			continue;
+		case 2:
+			// compressed bus file
+			break;
+		case 3:
+			std::cerr << "Warning: The file " << infn << " is an uncompressed EC matrix file. Skipping\n";
+			continue;
+		case 4:
+			decompress_matrix(inf, comp_header.extra_header);
+			continue;
+		case 0:
+			std::cerr << "Error: Unable to parse or open file " << infn << '\n';
+			continue;
+		default:
+			std::cerr << "Warning: Unknown file type. Skipping.\n";
+			continue;;
 		}
 
 		writeHeader(outf, comp_header.extra_header);
@@ -1007,7 +1000,8 @@ void bustools_decompress(const Bustools_opt &opt)
 				block_size = block_header >> 30;
 				row_count = block_header & row_count_mask;
 
-				if(block_size > max_block_size){
+				if (block_size > max_block_size)
+				{
 					delete[] BUF;
 					max_block_size += block_size;
 					BUF = new char[max_block_size];
@@ -1025,7 +1019,7 @@ void bustools_decompress(const Bustools_opt &opt)
 		}
 		catch (const std::bad_alloc &ex)
 		{
-			std::cerr << "Unable to allocate bytes" << std::endl;
+			std::cerr << "Unable to allocate buffer" << std::endl;
 		}
 
 		delete[] busdata;
