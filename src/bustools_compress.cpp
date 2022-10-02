@@ -512,8 +512,8 @@ bool compress_counts(BUSData const *const rows, const int row_count, char *obuf,
 {
 	bool success = true;
 	const uint32_t RLE_val{1UL};
-	uint32_t count,
-		runlen{0};
+	uint32_t count;
+	uint64_t runlen{0};
 
 	size_t wordsize = sizeof(FIBO_t) * 8;
 
@@ -546,6 +546,7 @@ bool compress_counts(BUSData const *const rows, const int row_count, char *obuf,
 		success &= fiboEncode(RLE_val, fibonacci_bufsize, fibonacci_buf, bitpos);
 		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
+
 
 	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
 	return success;
@@ -934,7 +935,7 @@ compress_ptr select_zlib_compressor(int col, int lvl)
 }
 
 
-uint32_t select_compressors(const Bustools_opt &opt, compress_ptr compressors[5]){
+uint32_t select_compressors(const Bustools_opt &opt, compress_ptr compressors[5], const BUSHeader &h){
 	
 	compress_ptr fibonacci_compressors[5]{
 		&compress_barcode_fibo<FIBO_t>,
@@ -943,6 +944,7 @@ uint32_t select_compressors(const Bustools_opt &opt, compress_ptr compressors[5]
 		&compress_count_fibo<FIBO_t>,
 		&compress_flags_fibo<FIBO_t>,
 	};
+
 	compress_ptr bustools_compressors[5]{
 		&compress_barcodes,
 		(opt.lossy_umi ? &lossy_compress_umis : &lossless_compress_umis),
@@ -1058,11 +1060,9 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 		// todo: move these to index file or back of file
 		// todo: put first barcodes in index file as well
 
-		outHeaderf.seekp(0, std::ios_base::beg);
-		comp_h.last_chunk = row_count;
-		comp_h.n_chunks = block_counter - 1;
-
-		writeCompressedHeader(outHeaderf, comp_h);
+		// outHeaderf.seekp(0, std::ios_base::beg);
+		// comp_h.last_chunk = row_count;
+		// comp_h.n_chunks = block_counter - 1;
 
 		delete[] busdata;
 		delete[] buffer;
@@ -1159,10 +1159,8 @@ void compress_ec_matrix(std::istream &in, BUSHeader &h, const Bustools_opt &opt,
 
 	uint32_t num_identities = lo + 1;
 	uint32_t num_other = ecs.size() - num_identities;
-	std::cerr << "num_identities " << num_identities << '\n';
-	std::cerr << "num lines: " << h.ecs.size() << '\n';
-	of.write("BEC\0", 4);
 
+	of.write("BEC\0", 4);
 	of.write((char *)&num_identities, sizeof(num_identities));
 	of.write((char *)&num_other, sizeof(num_other));
 
@@ -1253,7 +1251,6 @@ void bustools_compress(const Bustools_opt &opt)
 	std::ostream outf(buf);
 	std::ostream outHeader(headerBuf);
 
-	// TODO: should we really allow multiple files?
 	for (const auto &infn : opt.files)
 	{
 		std::streambuf *inbuf;

@@ -400,13 +400,12 @@ void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t &row_count, siz
 void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, size_t &buf_size, size_t &bufpos)
 {
 	PFD_t *pfd_buf = (PFD_t *)(BUF + bufpos);
+	size_t pfd_bufsize = (buf_size - bufpos) / sizeof(PFD_t);
 	size_t buf_offset{0};
-	size_t pfd_bufsize = (buf_size - 1) / sizeof(PFD_t) + 1;
 	size_t bitpos{0};
 
-
 	int32_t min_element{0};
-	// constexpr size_t block_size{1024};
+	
 	const size_t block_size = d_pfd_blocksize;
 
 	int32_t primary[block_size];
@@ -449,7 +448,7 @@ void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, size_t &bu
 		}
 
 		b_bits = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
-		min_element = (int32_t)fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
+		min_element = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
 		n_exceptions = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
 	}
 
@@ -481,6 +480,7 @@ void decompress_counts(char *BUF, BUSData *rows, const size_t &row_count, size_t
 	{
 		curr_el = fiboDecodeSingle<FIBO_t, uint32_t>(fibonacci_buf, fibonacci_bufsize, bitpos, buf_offset);
 		runlen = curr_el == RLE_val ? fiboDecodeSingle<FIBO_t, uint32_t>(fibonacci_buf, fibonacci_bufsize, bitpos, buf_offset) : 1;
+
 		for (int i = 0; i < runlen; ++i){
 			rows[row_index].count = curr_el;
 			++row_index;
@@ -807,10 +807,6 @@ int32_t decompress_ec_row(
 		}
 	}
 
-	if(n_elems != vec.size()){
-		std::cerr << "Vec size mismatch! " << n_elems << " != " << vec.size() << std::endl;
-		return 0;
-	}
 	return n_elems;
 }
 
