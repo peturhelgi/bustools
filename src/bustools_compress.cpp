@@ -973,7 +973,7 @@ uint32_t select_compressors(const Bustools_opt &opt, compress_ptr compressors[5]
 	return (fibo_select << 5) | zlib_select;
 }
 
-void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream &outHeaderf, std::streambuf *inbuf, BUSHeader &h)
+void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream &outHeaderf, std::istream &in, BUSHeader &h)
 {
 	constexpr size_t ROW_SIZE = sizeof(BUSData);
 
@@ -981,10 +981,7 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
 
 	compress_ptr compressors[5];
-	uint32_t compressor_selection = select_compressors(opt, compressors);
-	std::istream in(inbuf);
-	
-	bool parsed = parseHeader(in, h);
+	uint32_t compressor_selection = select_compressors(opt, compressors, h);
 	
 	compressed_BUSHeader comp_h;
 	comp_h.chunk_size = chunk_size;
@@ -1262,38 +1259,35 @@ void bustools_compress(const Bustools_opt &opt)
 		}
 		else
 		{
-			int target_file_type = get_target_file_type(infn);
-
 			inf.open(infn.c_str(), std::ios::binary);
 			inbuf = inf.rdbuf();
+		}
 
-			switch (target_file_type)
-			{
-			// compress busfile
-			case 0:
-				std::cerr << "Compressing BUS file " << infn << "\n";
-				compress_busfile(opt, outf, outHeader, inbuf, h);
+		std::istream in(inbuf);
+		int target_file_type = identifyParseHeader(in, h, comph);
+
+		switch (target_file_type)
+		{
+			case BUSFILE_TYPE::BUSFILE:
+				// Compress a BUS file
+				compress_busfile(opt, outf, outHeader, in, h);
 				break;
-			// decompress busz file
-			case 1:
+			case BUSFILE_TYPE::BUSFILE_COMPRESED:
+				// decompress busz file
 				std::cerr << "Warning: The file " << infn << " is a compressed BUS file. Skipping.\n";
 				break;
-			case 2:
-				std::cerr << "Compressing matrix file " << infn << '\n';
-				compress_ec_matrix(infn, h);
-				break;
-			// read compressed matrix.ecz
-			case 3:
+			case BUSFILE_TYPE::EC_MATRIX_COMPRESSED:
+				// Decompress matrix.ecz
 				std::cerr << "Warning: The file " << infn << " is a compressed EC matrix file. Skipping.\n";
 				break;
-			case -2:
-				std::cerr << "Error: Unable to open file " << infn << '\n';
+			case BUSFILE_TYPE::EC_MATRIX:
+				// Compress matrix.ec
+				std::cerr << "Compressing matrix file " << infn << '\n';
+				compress_ec_matrix(in, h, opt, outf);
 				break;
-			default:
-
-				std::cerr << "Warning: Unknown file type. Skipping compression on" << infn << "\n";
+			case 0:
+				std::cerr << "Error: Unable to parse file" << std::endl;
 				break;
 			}
-		}
 	}
 }
