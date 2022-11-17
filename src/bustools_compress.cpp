@@ -305,6 +305,13 @@ bool compress_barcodes(BUSData const *const rows, const int row_count, char *obu
 				success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 				runlen = 0;
 			}
+
+			if (barcode + 1 == 0)
+			{
+				std::cerr << "This input file needs sorting. Please sort this file and try again." << std::endl;
+				throw std::runtime_error("Input needs sorting prior to compression");
+			}
+
 			success &= fiboEncode(barcode + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 		}
 		last_bc = rows[i].barcode;
@@ -370,8 +377,12 @@ bool lossless_compress_umis(BUSData const *const rows, const int row_count, char
 			{
 				success &= fiboEncode(RLE_val + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 				success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
-
 				runlen = 0;
+			}
+
+			if(diff + 1 == 0){
+				std::cerr << "This input file needs sorting. Please sort this file and try again." << std::endl;
+				throw std::runtime_error("Input needs sorting prior to compression");
 			}
 
 			success &= fiboEncode(diff + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
