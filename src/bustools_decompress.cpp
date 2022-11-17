@@ -55,6 +55,9 @@ DEST_T fiboDecodeSingle(T const *const buf, const size_t n_buf, size_t &bitpos, 
 		++i_fibo;
 	}
 
+	assert(last_bit + bit == 2);
+	assert(buf_offset <= n_buf);
+
 	bufpos += (bitpos / SIZE);
 	bitpos %= SIZE;
 	return num;
