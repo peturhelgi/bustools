@@ -21,7 +21,7 @@ size_t d_pfd_blocksize = 1024;
  *
  * @param buf The buf to fibo-decode from.
  * @param n_buf maximum number of elements in the buffer.
- * @param bitpos a bit offset from the left within buf[bufpos].
+ * @param bitpos a bit offset from the left within buf[bufpos], where the next bit will be read.
  * @param bufpos offset from the beginning of buf.
  *
  * @return uint64_t num; the fibonacci decoded number. If buf is exhausted before the termination bit of
@@ -33,10 +33,10 @@ DEST_T fiboDecodeSingle(T const *const buf, const size_t n_buf, size_t &bitpos, 
 	uint32_t i_fibo = 0;
 	size_t SIZE = sizeof(T) * 8;
 	size_t buf_offset = bufpos;
-	size_t bit_offset = SIZE - (bitpos % SIZE) - 1;
+	size_t bitshift = SIZE - (bitpos % SIZE) - 1;
 	DEST_T num{0};
 
-	int bit = (buf[buf_offset] >> bit_offset) & 1;
+	int bit = (buf[buf_offset] >> bitshift) & 1;
 	int last_bit = 0;
 
 	++bitpos;
@@ -47,9 +47,9 @@ DEST_T fiboDecodeSingle(T const *const buf, const size_t n_buf, size_t &bitpos, 
 		num += bit * (fibo64[i_fibo]);
 
 		buf_offset = bufpos + bitpos / SIZE;
-		bit_offset = SIZE - (bitpos % SIZE) - 1;
+		bitshift = SIZE - (bitpos % SIZE) - 1;
 
-		bit = (buf[buf_offset] >> bit_offset) & 1;
+		bit = (buf[buf_offset] >> bitshift) & 1;
 
 		++bitpos;
 		++i_fibo;
