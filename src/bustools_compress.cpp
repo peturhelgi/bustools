@@ -13,16 +13,6 @@
 
 size_t pfd_blocksize = 1024;
 
-template <typename T>
-inline void flush_fibonacci(T buf[], const uint32_t &bitpos, std::ostream &of)
-{
-	uint32_t sz = sizeof(T) * 8;
-	if(bitpos % sz){
-		auto &element = buf[bitpos / sz];
-		of.write((char *)&element, sizeof(element));
-	}
-}
-
 /**
  * @brief Encode `num` using fibonacci encoding into buf, starting at bitpos.
  * @pre the next 128 bits in `buf` are 0 starting from `bitpos`, and wrapped around 192.
@@ -607,371 +597,7 @@ bool compress_flags(BUSData const *const rows, const int row_count, char *obuf, 
 	return success;
 }
 
-template <int comp_level>
-bool compress_barcode_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	typedef uint64_t T;
-
-	T *src_buf = new T[row_count];
-	for (int i = 0; i < row_count; ++i)
-	{
-		src_buf[i] = rows[i].barcode;
-	}
-
-	uLongf src_len = row_count * sizeof(T);
-	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
-
-	Bytef *dest = (Bytef *)(obuf + global_bufpos);
-	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
-	if (status != Z_OK)
-	{
-		success = false;
-		std::cerr << "zlib err: " << status << '\n';
-	}
-
-	global_bufpos += dest_len;
-	delete[] src_buf;
-	return success;
-}
-
-template <int comp_level>
-bool compress_UMI_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	typedef uint64_t T;
-
-	T *src_buf = new T[row_count];
-	for (int i = 0; i < row_count; ++i)
-	{
-		src_buf[i] = rows[i].UMI;
-	}
-	uLongf src_len = row_count * sizeof(T);
-	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
-
-	Bytef *dest = (Bytef *)(obuf + global_bufpos);
-	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
-	if (status != Z_OK)
-	{
-		success = false;
-		std::cerr << "zlib err: " << status << '\n';
-	}
-
-	global_bufpos += dest_len;
-	delete[] src_buf;
-	return success;
-}
-
-template <int comp_level>
-bool compress_EC_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	typedef int32_t T;
-
-	T *src_buf = new T[row_count];
-	for (int i = 0; i < row_count; ++i)
-	{
-		src_buf[i] = rows[i].ec;
-	}
-	uLongf src_len = row_count * sizeof(T);
-	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
-
-	Bytef *dest = (Bytef *)(obuf + global_bufpos);
-	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
-	if (status != Z_OK)
-	{
-		success = false;
-		std::cerr << "zlib err: " << status << '\n';
-	}
-
-	global_bufpos += dest_len;
-	delete[] src_buf;
-	return success;
-}
-
-template <int comp_level>
-bool compress_count_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	typedef uint32_t T;
-
-	T *src_buf = new T[row_count];
-	for (int i = 0; i < row_count; ++i)
-	{
-		src_buf[i] = rows[i].count;
-	}
-	uLongf src_len = row_count * sizeof(T);
-	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
-
-	Bytef *dest = (Bytef *)(obuf + global_bufpos);
-	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
-	if (status != Z_OK)
-	{
-		success = false;
-		std::cerr << "zlib err: " << status << '\n';
-	}
-
-	global_bufpos += dest_len;
-	delete[] src_buf;
-	return success;
-}
-template <int comp_level>
-bool compress_flags_zlib(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-
-	typedef uint32_t T;
-	T *src_buf = new T[row_count];
-	for (int i = 0; i < row_count; ++i)
-	{
-		src_buf[i] = rows[i].flags;
-	}
-	uLongf src_len = row_count * sizeof(T);
-	uLongf dest_len = (obuf_size - global_bufpos) / sizeof(Bytef);
-
-	Bytef *dest = (Bytef *)(obuf + global_bufpos);
-	int status = compress2(dest, &dest_len, (Bytef *)src_buf, src_len, comp_level);
-	if (status != Z_OK)
-	{
-		std::cerr << "zlib err: " << status << '\n';
-		success = false;
-	}
-
-	global_bufpos += dest_len;
-	delete[] src_buf;
-	return success;
-}
-
-template <typename T>
-bool compress_barcode_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	size_t bitpos{0};
-	size_t wordsize = sizeof(T) * 8;
-
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
-	T *fibonacci_buf = (T *)(obuf + global_bufpos);
-
-	for (int i = 0; i < row_count; ++i)
-	{
-		success &= fiboEncode(rows[i].barcode + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
-	}
-
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
-	return success;
-}
-template <typename T>
-bool compress_UMI_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	size_t bitpos{0};
-	size_t wordsize = sizeof(T) * 8;
-
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
-	T *fibonacci_buf = (T *)(obuf + global_bufpos);
-
-	for (int i = 0; i < row_count; ++i)
-	{
-		success &= fiboEncode(rows[i].UMI + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
-	}
-
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
-	return success;
-}
-template <typename T>
-bool compress_EC_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	size_t bitpos{0};
-	size_t wordsize = sizeof(T) * 8;
-
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
-	T *fibonacci_buf = (T *)(obuf + global_bufpos);
-
-	for (int i = 0; i < row_count; ++i)
-	{
-		success &= fiboEncode(rows[i].ec + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
-	}
-
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
-	return success;
-}
-template <typename T>
-bool compress_count_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	size_t bitpos{0};
-	size_t wordsize = sizeof(T) * 8;
-
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
-	T *fibonacci_buf = (T *)(obuf + global_bufpos);
-
-	for (int i = 0; i < row_count; ++i)
-	{
-		success &= fiboEncode(rows[i].count, fibonacci_bufsize, fibonacci_buf, bitpos);
-	}
-
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
-	return success;
-}
-template <typename T>
-bool compress_flags_fibo(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
-{
-	bool success = true;
-	size_t bitpos{0};
-	size_t wordsize = sizeof(T) * 8;
-
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
-	T *fibonacci_buf = (T *)(obuf + global_bufpos);
-
-	for (int i = 0; i < row_count; ++i)
-	{
-		success &= fiboEncode(rows[i].flags + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
-	}
-
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
-	return success;
-}
-
 typedef bool (*compress_ptr)(BUSData const *, const int, char *, const size_t &, size_t &);
-
-compress_ptr select_zlib_compressor(int col, int lvl)
-{
-	switch (lvl)
-	{
-	case 1:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<1>,
-			&compress_UMI_zlib<1>,
-			&compress_EC_zlib<1>,
-			&compress_count_zlib<1>,
-			&compress_flags_zlib<1>};
-		return zlibs[col];
-	}
-	case 2:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<2>,
-			&compress_UMI_zlib<2>,
-			&compress_EC_zlib<2>,
-			&compress_count_zlib<2>,
-			&compress_flags_zlib<2>};
-		return zlibs[col];
-	}
-	case 3:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<3>,
-			&compress_UMI_zlib<3>,
-			&compress_EC_zlib<3>,
-			&compress_count_zlib<3>,
-			&compress_flags_zlib<3>};
-		return zlibs[col];
-	}
-	case 4:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<4>,
-			&compress_UMI_zlib<4>,
-			&compress_EC_zlib<4>,
-			&compress_count_zlib<4>,
-			&compress_flags_zlib<4>};
-		return zlibs[col];
-	}
-	case 5:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<5>,
-			&compress_UMI_zlib<5>,
-			&compress_EC_zlib<5>,
-			&compress_count_zlib<5>,
-			&compress_flags_zlib<5>};
-		return zlibs[col];
-	}
-	case 6:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<6>,
-			&compress_UMI_zlib<6>,
-			&compress_EC_zlib<6>,
-			&compress_count_zlib<6>,
-			&compress_flags_zlib<6>};
-		return zlibs[col];
-	}
-	case 7:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<7>,
-			&compress_UMI_zlib<7>,
-			&compress_EC_zlib<7>,
-			&compress_count_zlib<7>,
-			&compress_flags_zlib<7>};
-		return zlibs[col];
-	}
-	case 8:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<8>,
-			&compress_UMI_zlib<8>,
-			&compress_EC_zlib<8>,
-			&compress_count_zlib<8>,
-			&compress_flags_zlib<8>};
-		return zlibs[col];
-	}
-	case 9:
-	{
-		compress_ptr zlibs[5]{
-			&compress_barcode_zlib<9>,
-			&compress_UMI_zlib<9>,
-			&compress_EC_zlib<9>,
-			&compress_count_zlib<9>,
-			&compress_flags_zlib<9>};
-		return zlibs[col];
-	}
-	default:
-		return nullptr;
-	}
-}
-
-
-uint32_t select_compressors(const Bustools_opt &opt, compress_ptr compressors[5], const BUSHeader &h){
-	
-	compress_ptr fibonacci_compressors[5]{
-		&compress_barcode_fibo<FIBO_t>,
-		&compress_UMI_fibo<FIBO_t>,
-		&compress_EC_fibo<FIBO_t>,
-		&compress_count_fibo<FIBO_t>,
-		&compress_flags_fibo<FIBO_t>,
-	};
-
-	compress_ptr bustools_compressors[5]{
-		&compress_barcodes,
-		(opt.lossy_umi ? &lossy_compress_umis : &lossless_compress_umis),
-		&compress_ecs,
-		&compress_counts,
-		&compress_flags,
-	};
-
-	uint32_t zlib_select = 0;
-	for (int i = 0; i < 5; ++i){
-		compressors[i] = bustools_compressors[i];
-		if((opt.fibo_compress >> (4-i) & 1) > 0)
-		{
-			compressors[i] = fibonacci_compressors[i];
-		}
-		else{
-			compress_ptr comp = select_zlib_compressor(i, opt.z_levels[i]);
-			if(comp != nullptr){
-				compressors[i] = comp;
-				zlib_select |= (1 << (4 - i));
-			}
-		}
-	}
-
-	uint32_t fibo_select = opt.fibo_compress & ((1 << 5) - 1);
-	return (fibo_select << 5) | zlib_select;
-}
 
 void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream &outHeaderf, std::istream &in, BUSHeader &h)
 {
@@ -980,13 +606,17 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	size_t N = opt.max_memory / ROW_SIZE;
 	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
 
-	compress_ptr compressors[5];
-	uint32_t compressor_selection = select_compressors(opt, compressors, h);
-	
+	compress_ptr compressors[5]{
+		&compress_barcodes,
+		(opt.lossy_umi ? &lossy_compress_umis : &lossless_compress_umis),
+		&compress_ecs,
+		&compress_counts,
+		&compress_flags,
+	};
+
 	compressed_BUSHeader comp_h;
 	comp_h.chunk_size = chunk_size;
 	comp_h.lossy_umi = opt.lossy_umi;
-	comp_h.fibo_zlib_compress = compressor_selection;
 
 	comp_h.extra_header.text = h.text;
 	comp_h.extra_header.version = h.version;
@@ -1009,10 +639,13 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	uint64_t block_counter = 0;
 	uint64_t block_header = 0;
 
+	BUSData *busdata;
+	char *buffer;
 	try
 	{
-		BUSData *busdata = new BUSData[chunk_size];
-		char *buffer = new char[bufsize];
+		busdata = new BUSData[chunk_size];
+		buffer = new char[bufsize];
+
 		std::fill(buffer, buffer + bufsize, 0);
 		while (in.good())
 		{
@@ -1068,6 +701,14 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	{
 		std::cerr << "Unable to allocate buffer\n"
 				  << ex.what() << std::endl;
+		delete[] busdata;
+		delete[] buffer;
+		exit(1);
+	}
+	catch(const std::runtime_error &ex){
+		delete[] busdata;
+		delete[] buffer;
+		exit(-1);
 	}
 }
 template <typename T>
