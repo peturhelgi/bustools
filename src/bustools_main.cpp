@@ -94,11 +94,10 @@ std::vector<std::string> parseList(const std::string &s, const std::string &sep 
  * @return bool true iff requested from the command line.
  */
 bool parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
-  const char *opt_string = "o:T:ph";
+  const char *opt_string = "o:ph";
   bool print_usage = false;
   static struct option long_options[] = {
       {"output", required_argument, 0, 'o'},
-      {"temp", required_argument, 0, 'T'},
       {"pipe", no_argument, 0, 'p'},
       {"help", no_argument, 0, 'h'},
       {0, 0, 0, 0},
@@ -112,9 +111,6 @@ bool parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
         break;
       case 'p':
         opt.stream_out = true;
-        break;
-      case 'T':
-        opt.temp_files = optarg;
         break;
       case 'h':
         print_usage = true;
@@ -144,15 +140,14 @@ bool parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
  */
 bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
 {
-  const char *opt_string = "N:Lo:pT:z:f:h";
+  const char *opt_string = "N:Lo:pP:h";
+  const bool lossy_umi_enabled = false;
+
   static struct option long_options[] = {
       {"chunk-size", required_argument, 0, 'N'},
-      // {"lossy-umi", no_argument, 0, 'L'}, // ignore lossy for now
+      {"lossy-umi", no_argument, 0, 'L'},
       {"output", required_argument, 0, 'o'},
       {"pipe", no_argument, 0, 'p'},
-      {"temp", required_argument, 0, 'T'},
-      {"zlib", required_argument, 0, 'z'},
-      {"fibonacci", required_argument, 0, 'f'},
       {"pfd-size", required_argument, 0, 'P'},
       {"help", no_argument, 0, 'h'},
       {0, 0, 0, 0}};
@@ -163,25 +158,13 @@ bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
   {
     switch (c)
     {
-    case 'z':
-    {
-      std::string s(optarg);
-      for (int i = 0; i < s.length(); ++i)
-      {
-        opt.z_levels[i] = (s[i] - '0');
-      }
-      break;
-    }
-    case 'f':
-    {
-      std::string s(optarg);
-      for (int i = 0; i < s.length(); ++i){
-        opt.fibo_compress |= (s[i] == '1') << (4-i);
-      }
-      break;
-    }
     case 'N':
       opt.chunk_size = atoi(optarg);
+      break;
+    case 'L':
+      if(!lossy_umi_enabled)
+        std::cerr << "Lossy UMI not yet implemented. Using lossless instead." << std::endl;
+      opt.lossy_umi = lossy_umi_enabled;
       break;
     case 'o':
       opt.output = optarg;
@@ -189,14 +172,6 @@ bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
     case 'p':
       opt.stream_out = true;
       break;
-    case 'T':
-      opt.temp_files = optarg;
-      break;
-    case 'L':
-      std::cerr << "Lossy UMI not yet implemented. Using lossless instead." << std::endl;
-      // opt.lossy_umi = true;
-      break;
-
     case 'P':
       opt.pfd_blocksize = atoi(optarg);
       break;
@@ -1029,13 +1004,11 @@ bool check_ProgramOptions_inflate(Bustools_opt &opt){
     }
   }
 
-  // TODO: Memory requirements.
-
   if(opt.files.size() != 1){
     ret = false;
     if(opt.files.size() == 0){
-      std::cerr << "Error: Missing compressed BUS input files" << std::endl;
-    } else{
+      std::cerr << "Error: Missing BUSZ input file" << std::endl;
+    } else {
       std::cerr << "Error: Multiple files not yet supported" << std::endl;
     }
   }
@@ -1052,74 +1025,22 @@ bool check_ProgramOptions_inflate(Bustools_opt &opt){
 bool check_ProgramOptions_compress(Bustools_opt &opt)
 {
   bool ret = true;
-  const char* col_names[5] = {"barcode", "UMI", "ec", "count", "flags"};
-  for (int i = 0; i < 5; ++i){
-    if (opt.z_levels[i] > 0 && (opt.fibo_compress >> (4-i) & 1))
-    {
-      std::cerr << "Cannot compress column " << col_names[i]
-      << " with both fibonacci and zlib.\n";
-      ret = false;
-    }
-    if(opt.z_levels[i] < 0 || opt.z_levels[i] > 9){
-      std::cerr << "Invalid compression level " << opt.z_levels[i]
-                << " for column " << col_names[i] << '\n';
-      ret = false;
-    }
-  }
 
-  if (!opt.stream_out)
-  {
-    if (opt.output.empty())
-    {
+  if(!opt.stream_out){
+    if(opt.output.empty()){
       std::cerr << "Error: missing output file" << std::endl;
       ret = false;
     }
-    else if (!checkOutputFileValid(opt.output))
-    {
+    else if (!checkOutputFileValid(opt.output)){
       std::cerr << "Error: unable to open output file" << std::endl;
       ret = false;
     }
   }
-  else
-  {
-    // Temporary files needed if streaming out.
-    if (opt.temp_files.empty())
-    {
-      if (!opt.output.empty())
-        opt.temp_files = opt.output + ".tmp";
-    }
-    else
-    {
-      if (checkDirectoryExists(opt.temp_files))
-      {
-        opt.temp_files += "/bus.compress." + std::to_string(getpid()) + ".";
-      }
-      else
-      {
-        if (opt.temp_files.back() == '/')
-        {
-          if(my_mkdir(opt.temp_files.c_str(), 0777) == 0) {
-            opt.temp_files += "/bus.compress." + std::to_string(getpid()) + ".";
-          }
-          else {
-            std::cerr << "Error: directory " << opt.temp_files << " does not exist and could not be created. Check that the parent directory exists and you have write permissions." << std::endl;
-            ret = false;
-          }
-        }
-        else{
-          if(opt.temp_files.back() != '.')
-            opt.temp_files += '.';
-        }
-      }
-    }
-  }
-
-  // TODO: Memory requirements
 
   if(opt.files.size() != 1){
     ret = false;
     if(opt.files.size() == 0){
-      std::cerr << "Error: Missing BUS input files" << std::endl;
+      std::cerr << "Error: Missing BUS input file" << std::endl;
     } else {
       std::cerr << "Error: Multiple files not yet supported" << std::endl;
     }
