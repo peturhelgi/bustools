@@ -279,7 +279,7 @@ size_t PfdParsePrimaryBlock(
  * @param row_count The number of BUSData elements in `rows`.
  * @param buf_size The size of `BUF` in bytes.
  */
-void decompress_barcode(char *BUF, BUSData *rows, const size_t &row_count, size_t &buf_size, size_t &bufpos)
+void decompress_barcode(char *BUF, BUSData *rows, const size_t &row_count, const size_t &buf_size, size_t &bufpos)
 {
 	FIBO_t *fibonacci_buf = (FIBO_t *)(BUF + bufpos);
 
@@ -330,7 +330,7 @@ void decompress_barcode(char *BUF, BUSData *rows, const size_t &row_count, size_
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t &row_count, size_t &buf_size, size_t &bufpos)
+void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t &row_count, const size_t &buf_size, size_t &bufpos)
 {
 	FIBO_t *fibonacci_buf = (FIBO_t *)(BUF + bufpos);
 	size_t fibonacci_bufsize = (buf_size - 1) / (sizeof(FIBO_t)) + 1,
@@ -389,7 +389,7 @@ void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t &row_count, 
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t &row_count, size_t &buf_size, size_t &bufpos)
+void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t &row_count, const size_t &buf_size, size_t &bufpos)
 {
 }
 
@@ -400,7 +400,7 @@ void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t &row_count, siz
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, size_t &buf_size, size_t &bufpos)
+void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, const size_t &buf_size, size_t &bufpos)
 {
 	PFD_t *pfd_buf = (PFD_t *)(BUF + bufpos);
 	size_t pfd_bufsize = (buf_size - bufpos) / sizeof(PFD_t);
@@ -466,7 +466,7 @@ void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, size_t &bu
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_counts(char *BUF, BUSData *rows, const size_t &row_count, size_t &buf_size, size_t &bufpos)
+void decompress_counts(char *BUF, BUSData *rows, const size_t &row_count, const size_t &buf_size, size_t &bufpos)
 {
 	FIBO_t *fibonacci_buf = (FIBO_t *)(BUF + bufpos);
 	size_t fibonacci_bufsize{(buf_size - 1) / (sizeof(FIBO_t)) + 1},
@@ -501,7 +501,7 @@ void decompress_counts(char *BUF, BUSData *rows, const size_t &row_count, size_t
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
-void decompress_flags(char *BUF, BUSData *rows, const size_t &row_count, size_t &buf_size, size_t &bufpos)
+void decompress_flags(char *BUF, BUSData *rows, const size_t &row_count, const size_t &buf_size, size_t &bufpos)
 {
 	FIBO_t *fibonacci_buf = (FIBO_t *)(BUF + bufpos);
 	size_t fibonacci_bufsize{(buf_size - 1) / (sizeof(FIBO_t)) + 1},
@@ -528,7 +528,7 @@ void decompress_flags(char *BUF, BUSData *rows, const size_t &row_count, size_t 
 	bufpos += buf_offset * sizeof(FIBO_t);
 }
 
-typedef void (*decompress_ptr)(char *, BUSData *, const size_t &, size_t &, size_t &);
+typedef void (*decompress_ptr)(char *, BUSData *, const size_t &, const size_t &, size_t &);
 
 void decompress_block(
 	size_t row_count,
@@ -683,6 +683,69 @@ bool decompress_matrix(std::istream &inf, BUSHeader &header, size_t bufsize=1000
 	return true;
 }
 
+void decompress_buszfile(std::istream &in, compressed_BUSHeader &comp_h, std::ostream &outf)
+{
+	writeHeader(outf, comp_h.extra_header);
+	BUSData *busdata = new BUSData[comp_h.chunk_size];
+
+	decompress_ptr decompressors[5]{
+		&decompress_barcode,
+		comp_h.lossy_umi ? &decompress_lossy_umi : &decompress_lossless_umi,
+		&decompress_ec,
+		&decompress_counts,
+		&decompress_flags,
+	};
+	d_pfd_blocksize = comp_h.pfd_blocksize;
+
+	try
+	{
+		uint64_t max_block_size = 6 * comp_h.chunk_size;
+		uint32_t i_chunk = 0;
+
+		char *BUF = new char[max_block_size];
+		size_t bufpos = 0;
+
+		uint64_t const row_count_mask = (1ULL << 30) - 1;
+		uint64_t block_header = 0,
+				 row_count = 0,
+				 block_size = 0;
+
+		in.read((char *)&block_header, sizeof(uint64_t));
+		while (block_header && in.good())
+		{
+			block_size = block_header >> 30;
+			row_count = block_header & row_count_mask;
+
+			if (block_size > max_block_size)
+			{
+				delete[] BUF;
+				max_block_size += block_size;
+				BUF = new char[max_block_size];
+			}
+
+			in.read((char *)BUF, block_size);
+			for (int i = 0; i < 5; ++i){
+				size_t srclen = block_size;
+				decompressors[i](BUF, busdata, row_count, srclen, bufpos);
+			}
+			// decompress_block(row_count, block_size, decompressors, BUF, bufpos, busdata);
+			outf.write((char *)busdata, row_count * sizeof(BUSData));
+			bufpos = 0;
+
+			in.read((char *)&block_header, sizeof(uint64_t));
+			++i_chunk;
+		}
+
+		delete[] BUF;
+	}
+	catch (const std::bad_alloc &ex)
+	{
+		std::cerr << "Unable to allocate buffer" << std::endl;
+	}
+
+	delete[] busdata;
+}
+
 void bustools_decompress(const Bustools_opt &opt)
 {
 	compressed_BUSHeader comp_header;
@@ -725,7 +788,8 @@ void bustools_decompress(const Bustools_opt &opt)
 			continue;
 		case 2:
 			// compressed bus file
-			break;
+			decompress_buszfile(in, comp_header, outf);
+			continue;
 		case 3:
 			std::cerr << "Warning: The file " << infn << " is an uncompressed EC matrix file. Skipping\n";
 			continue;
@@ -737,67 +801,7 @@ void bustools_decompress(const Bustools_opt &opt)
 			continue;
 		default:
 			std::cerr << "Warning: Unknown file type. Skipping.\n";
-			continue;;
+			continue;
 		}
-
-		writeHeader(outf, comp_header.extra_header);
-		BUSData *busdata = new BUSData[comp_header.chunk_size];
-
-		decompress_ptr lossy_umi = &decompress_lossy_umi,
-					   lossless_umi = &decompress_lossless_umi;
-
-		decompress_ptr decompress_umi = comp_header.lossy_umi ? lossy_umi : lossless_umi;
-		decompress_ptr decompressors[5]{
-			&decompress_barcode,
-			decompress_umi,
-			&decompress_ec,
-			&decompress_counts,
-			&decompress_flags,
-		};
-		select_decompressors(comp_header, decompressors);
-		d_pfd_blocksize = comp_header.pfd_blocksize;
-
-		bool is_standard_size = false;
-		try
-		{
-			uint64_t max_block_size = 6 * comp_header.chunk_size;
-			uint32_t i_chunk = 0;
-
-			char *BUF = new char[max_block_size];
-			size_t bufpos = 0;
-			uint64_t block_header = 0,
-					 row_count_mask = (1ULL << 30) - 1,
-					 row_count = 0,
-					 block_size = 0;
-
-			in.read((char *)&block_header, sizeof(uint64_t));
-			while (block_header && in.good())
-			{
-				block_size = block_header >> 30;
-				row_count = block_header & row_count_mask;
-
-				if (block_size > max_block_size)
-				{
-					delete[] BUF;
-					max_block_size += block_size;
-					BUF = new char[max_block_size];
-				}
-
-				in.read((char *)BUF, block_size);
-				decompress_block(row_count, block_size, decompressors, BUF, bufpos, busdata);
-				outf.write((char *)busdata, row_count * sizeof(BUSData));
-				bufpos = 0;
-
-				in.read((char *)&block_header, sizeof(uint64_t));
-			}
-
-			delete[] BUF;
-		}
-		catch (const std::bad_alloc &ex)
-		{
-			std::cerr << "Unable to allocate buffer" << std::endl;
-		}
-
-		delete[] busdata;
 	}
 }
