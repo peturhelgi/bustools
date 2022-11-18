@@ -140,7 +140,7 @@ bool parse_ProgramOptions_inflate(int argc, char **argv, Bustools_opt &opt){
  */
 bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
 {
-  const char *opt_string = "N:Lo:pP:h";
+  const char *opt_string = "N:Lo:pP:h:i::";
   const bool lossy_umi_enabled = false;
 
   static struct option long_options[] = {
@@ -149,6 +149,7 @@ bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
       {"output", required_argument, 0, 'o'},
       {"pipe", no_argument, 0, 'p'},
       {"pfd-size", required_argument, 0, 'P'},
+      {"index", optional_argument, 0, 'i'},
       {"help", no_argument, 0, 'h'},
       {0, 0, 0, 0}};
   int option_index = 0, c;
@@ -158,6 +159,18 @@ bool parse_ProgramOptions_compress(int argc, char **argv, Bustools_opt &opt)
   {
     switch (c)
     {
+      case 'i':{
+        if(optarg == NULL && optind < argc-1 && argv[optind][0] != '-'){
+          optarg = argv[optind++];
+        }
+        if(optarg == NULL){
+          opt.index.assign("output.busz.idx");
+        }
+        else{
+          opt.index.assign(optarg);
+        }
+        break;
+      }
     case 'N':
       opt.chunk_size = atoi(optarg);
       break;

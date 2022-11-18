@@ -652,6 +652,8 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 
 	BUSData *busdata;
 	char *buffer;
+	BUSZIndex busz_index(h, opt);
+
 	try
 	{
 		busdata = new BUSData[chunk_size];
@@ -661,6 +663,8 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 		while (in.good())
 		{
 			in.read((char *)busdata, chunk_size * ROW_SIZE);
+			busz_index_add(busz_index, busdata[0].barcode, outf.tellp());
+
 			row_count = in.gcount() / ROW_SIZE;
 
 			for (int i_col = 0; i_col < 5; ++i_col)
@@ -698,13 +702,6 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 		block_header = 0;
 		outf.write((char *)&block_header, sizeof(block_header));
 
-		// todo: move these to index file or back of file
-		// todo: put first barcodes in index file as well
-
-		// outHeaderf.seekp(0, std::ios_base::beg);
-		// comp_h.last_chunk = row_count;
-		// comp_h.n_chunks = block_counter - 1;
-
 		delete[] busdata;
 		delete[] buffer;
 	}
@@ -721,7 +718,60 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 		delete[] buffer;
 		exit(-1);
 	}
+
+	if (!opt.index.empty())
+	{
+		std::ofstream ofindex;
+		bool ascii_index = false;
+		ofindex.open(opt.index);
+		busz_index.last_block = row_count ?: chunk_size;
+		write_BuszIndex(busz_index, ascii_index, ofindex);
+	}
 }
+
+void busz_index_add(BUSZIndex &index, uint64_t bc, uint64_t pos)
+{
+	index.barcodes.push_back(bc);
+	index.positions.push_back(pos);
+	++index.n_blocks;
+}
+void write_BuszIndex(BUSZIndex &index, bool ascii, std::ostream &of)
+{
+	of.write("BZI\0	", 4);
+	of.write((char *)&ascii, sizeof(ascii));
+
+	if(index.n_blocks > 1 && index.barcodes[index.n_blocks-2] == index.barcodes.back()){
+		index.barcodes.pop_back();
+		index.positions.pop_back();
+		--index.n_blocks;
+	}
+
+	if (ascii)
+	{
+		of << "\n";
+		of << index.n_blocks << " "
+		   << index.block_size << " "
+		   << index.last_block << "\n";
+		for (int i = 0; i < index.n_blocks; ++i)
+		{
+			of << binaryToString(index.barcodes[i], index.bclen)
+			   << " " << index.positions[i] << '\n';
+		}
+	}
+	else
+	{
+		of.write((char *)&index.n_blocks, sizeof(index.n_blocks));
+		of.write((char *)&index.block_size, sizeof(index.block_size));
+		of.write((char *)&index.last_block, sizeof(index.last_block));
+
+		for (int i = 0; i < index.n_blocks; ++i)
+		{
+			of.write((char *)&index.barcodes[i], sizeof(index.barcodes[i]));
+			of.write((char *)&index.positions[i], sizeof(index.positions[i]));
+		}
+	}
+}
+
 template <typename T>
 bool pack_ec_row_to_file(
 	const std::vector<int32_t> &ecs,

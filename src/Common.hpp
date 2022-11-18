@@ -75,6 +75,7 @@ struct Bustools_opt {
 
 
   // Compression opts
+  std::string index;
   int chunk_size = 100000;
   bool lossy_umi = 0;
   uint16_t fibo_compress = 0;
