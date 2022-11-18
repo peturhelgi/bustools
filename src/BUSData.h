@@ -33,7 +33,7 @@ struct compressed_BUSHeader
 	uint32_t chunk_size;
 	uint32_t n_chunks;
 	uint32_t last_chunk;
-	bool lossy_umi;
+	uint32_t lossy_umi;
 	// least significant bits 4 .. 0 state whether zlib was used for compressing Barcode .. Flags
 	// least significant bits 9 .. 5 state whether fibonacci(only) was used for compressing Barcode..Flags
 	uint32_t pfd_blocksize = 512;

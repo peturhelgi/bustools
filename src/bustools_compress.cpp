@@ -722,10 +722,9 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	if (!opt.index.empty())
 	{
 		std::ofstream ofindex;
-		bool ascii_index = false;
 		ofindex.open(opt.index);
 		busz_index.last_block = row_count ?: chunk_size;
-		write_BuszIndex(busz_index, ascii_index, ofindex);
+		write_BuszIndex(busz_index, ofindex);
 	}
 }
 
@@ -735,10 +734,8 @@ void busz_index_add(BUSZIndex &index, uint64_t bc, uint64_t pos)
 	index.positions.push_back(pos);
 	++index.n_blocks;
 }
-void write_BuszIndex(BUSZIndex &index, bool ascii, std::ostream &of)
+void write_BuszIndex(BUSZIndex &index, std::ostream &of)
 {
-	of.write("BZI\0	", 4);
-	of.write((char *)&ascii, sizeof(ascii));
 
 	if(index.n_blocks > 1 && index.barcodes[index.n_blocks-2] == index.barcodes.back()){
 		index.barcodes.pop_back();
@@ -746,29 +743,15 @@ void write_BuszIndex(BUSZIndex &index, bool ascii, std::ostream &of)
 		--index.n_blocks;
 	}
 
-	if (ascii)
-	{
-		of << "\n";
-		of << index.n_blocks << " "
-		   << index.block_size << " "
-		   << index.last_block << "\n";
-		for (int i = 0; i < index.n_blocks; ++i)
-		{
-			of << binaryToString(index.barcodes[i], index.bclen)
-			   << " " << index.positions[i] << '\n';
-		}
-	}
-	else
-	{
-		of.write((char *)&index.n_blocks, sizeof(index.n_blocks));
-		of.write((char *)&index.block_size, sizeof(index.block_size));
-		of.write((char *)&index.last_block, sizeof(index.last_block));
+	of.write("BZI\0", 4);
+	of.write((char *)&index.n_blocks, sizeof(index.n_blocks));
+	of.write((char *)&index.block_size, sizeof(index.block_size));
+	of.write((char *)&index.last_block, sizeof(index.last_block));
 
-		for (int i = 0; i < index.n_blocks; ++i)
-		{
-			of.write((char *)&index.barcodes[i], sizeof(index.barcodes[i]));
-			of.write((char *)&index.positions[i], sizeof(index.positions[i]));
-		}
+	for (int i = 0; i < index.n_blocks; ++i)
+	{
+		of.write((char *)&index.barcodes[i], sizeof(index.barcodes[i]));
+		of.write((char *)&index.positions[i], sizeof(index.positions[i]));
 	}
 }
 

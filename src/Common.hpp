@@ -76,10 +76,8 @@ struct Bustools_opt {
 
   // Compression opts
   std::string index;
-  int chunk_size = 100000;
-  bool lossy_umi = 0;
-  uint16_t fibo_compress = 0;
-  int z_levels[5]{0,0,0,0,0};
+  uint32_t chunk_size = 100000;
+  uint32_t lossy_umi = 0;
   uint32_t pfd_blocksize = 512;
 
   Bustools_opt() : threads(1), max_memory(1ULL<<32), type(0),

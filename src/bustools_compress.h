@@ -35,7 +35,7 @@ struct BUSZIndex {
 		}
 };
 
-void write_BuszIndex(BUSZIndex &, bool ,std::ostream &);
+void write_BuszIndex(BUSZIndex &, std::ostream &);
 void busz_index_add(BUSZIndex &, uint64_t , uint64_t);
 
 #endif
