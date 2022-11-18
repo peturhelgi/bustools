@@ -340,6 +340,7 @@ void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t &row_count, 
 		buf_offset{0};
 	// buf_offset{bufpos / sizeof(FIBO_t)};
 	uint64_t diff = 0,
+			// guarantee that last_barcode != rows[0].barcode
 			 last_barcode = rows[0].barcode + 1,
 			 umi = 0,
 			 barcode,
@@ -361,6 +362,7 @@ void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t &row_count, 
 			runlen = fiboDecodeSingle<FIBO_t, uint64_t>(fibonacci_buf, fibonacci_bufsize, bitpos, buf_offset);
 			for (int i = 0; i < runlen; ++i)
 			{
+				// we must decrement umi since we incremented it during compression
 				rows[row_index].UMI = umi - 1;
 				++row_index;
 			}
@@ -368,6 +370,7 @@ void decompress_lossless_umi(char *BUF, BUSData *rows, const size_t &row_count, 
 		else{
 			// Current element is a delta
 			umi += diff;
+			// we must decrement umi since we incremented it during compression
 			rows[row_index].UMI = umi - 1;
 			++row_index;
 		}

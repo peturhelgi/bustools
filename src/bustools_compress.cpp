@@ -641,7 +641,7 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 
 	std::vector<uint32_t> block_sizes;
 
-	// 6 * chunk_sizes is usually good enough, but we make it a multiple of 8;
+	// 6 * chunk_size is usually good enough, but we make it a multiple of 8;
 	size_t bufsize = (6 * chunk_size / 8) * 8;
 	size_t bufpos = 0;
 	size_t buf_checkpoint = 0;
