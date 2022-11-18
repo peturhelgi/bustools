@@ -629,10 +629,10 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	comp_h.chunk_size = chunk_size;
 	comp_h.lossy_umi = opt.lossy_umi;
 
-	comp_h.extra_header.text = h.text;
-	comp_h.extra_header.version = h.version;
-	comp_h.extra_header.bclen = h.bclen;
-	comp_h.extra_header.umilen = h.umilen;
+	comp_h.bus_header.text = h.text;
+	comp_h.bus_header.version = h.version;
+	comp_h.bus_header.bclen = h.bclen;
+	comp_h.bus_header.umilen = h.umilen;
 
 	pfd_blocksize = opt.pfd_blocksize;
 	comp_h.pfd_blocksize = pfd_blocksize;

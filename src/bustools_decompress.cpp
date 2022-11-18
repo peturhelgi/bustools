@@ -688,7 +688,7 @@ bool decompress_matrix(std::istream &inf, BUSHeader &header, size_t bufsize=1000
 
 void decompress_buszfile(std::istream &in, compressed_BUSHeader &comp_h, std::ostream &outf)
 {
-	writeHeader(outf, comp_h.extra_header);
+	writeHeader(outf, comp_h.bus_header);
 	BUSData *busdata = new BUSData[comp_h.chunk_size];
 
 	decompress_ptr decompressors[5]{
@@ -797,7 +797,7 @@ void bustools_decompress(const Bustools_opt &opt)
 			std::cerr << "Warning: The file " << infn << " is an uncompressed EC matrix file. Skipping\n";
 			continue;
 		case 4:
-			decompress_matrix(inf, comp_header.extra_header);
+			decompress_matrix(inf, comp_header.bus_header);
 			continue;
 		case 0:
 			std::cerr << "Error: Unable to parse or open file " << infn << '\n';

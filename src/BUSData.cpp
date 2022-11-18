@@ -128,7 +128,7 @@ bool parseCompressedHeader(std::istream &inf, compressed_BUSHeader &compheader)
   char magic[5];
   magic[4] = '\0';
 
-  BUSHeader &header = compheader.extra_header;
+  BUSHeader &header = compheader.bus_header;
   inf.read(magic, 4);
   if(std::strcmp(magic, "BUS\1") != 0){
     std::cerr << "Invalid header magic\n";
@@ -384,7 +384,7 @@ bool writeCompressedHeader(std::ostream &outf, const compressed_BUSHeader &comph
   outf.write("BUS\1", 4);
 
   // We start writing out the contents of the general header
-  const auto header = compheader.extra_header;
+  const auto header = compheader.bus_header;
   outf.write((char *)(&header.version), sizeof(header.version));
   outf.write((char *)(&header.bclen), sizeof(header.bclen));
   outf.write((char *)(&header.umilen), sizeof(header.umilen));
