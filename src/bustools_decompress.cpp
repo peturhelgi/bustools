@@ -423,16 +423,16 @@ void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, const size
 	std::vector<uint32_t> index_gaps;
 
 	uint32_t b_bits = 1;
-	b_bits = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
-
-	min_element = fiboDecodeSingle<PFD_t, int32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
-	n_exceptions = fiboDecodeSingle<PFD_t, uint64_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
 
 	size_t row_index = 0;
-	while (b_bits)
+	while (row_index < row_count)
 	{
 		index_gaps.clear();
 		exceptions.clear();
+		b_bits = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
+
+		min_element = fiboDecodeSingle<PFD_t, int32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
+		n_exceptions = fiboDecodeSingle<PFD_t, uint64_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
 
 		for (int i = 0; i < n_exceptions; ++i)
 		{
@@ -455,10 +455,6 @@ void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, const size
 			rows[row_index].ec = primary[i];
 			++row_index;
 		}
-
-		b_bits = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
-		min_element = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
-		n_exceptions = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
 	}
 
 	buf_offset += bitpos > 0;

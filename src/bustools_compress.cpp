@@ -480,26 +480,6 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 		byte_count += elems_written * sizeof(PFD_t);
 	}
 
-	pfd_block.clear();
-
-	// pfd_row_index is then the number of ints in the last block.
-	// We signal the end of chunk by encoding b_bits = 0, with the number of elements in the last block as min_element.
-	// Since pfd_block is cleared, no additional values will be written (except n_exceptions which adds 2 bits).
-
-	elems_written = new_pfd(
-		BLOCK_SIZE,
-		pfd_block,
-		index_gaps,
-		exceptions,
-		fibonacci_buf + buf_offset,
-		0, // b_bits = 0 ensures we stop decompressing ECs
-		pfd_row_index,
-		fibonacci_bufsize - buf_offset, 
-		primary_block
-	);
-
-	success &= (elems_written > 0);
-	byte_count += elems_written * sizeof(PFD_t);
 	global_bufpos += byte_count;
 
 	delete[] primary_block;
