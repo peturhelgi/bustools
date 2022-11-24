@@ -63,7 +63,6 @@ bool fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, size_t &bi
 			 buf_offset = (next_bit_pos / word_size) % bufsize;
 
 	// Set the stop bit.
-	// buf[buf_offset] |= shifted_64[word_size - 1 - bit_offset];
 	buf[buf_offset] |= ONE << (word_size - 1 - bit_offset);
 
 	++i;
@@ -74,7 +73,6 @@ bool fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, size_t &bi
 		buf_offset = (next_bit_pos / word_size) % bufsize;
 		bit_offset = next_bit_pos % word_size;
 
-		// buf[buf_offset] |= shifted_64[word_size - 1 - bit_offset];
 		buf[buf_offset] |= ONE << (word_size - 1 - bit_offset);
 		remainder -= *i;
 	}
