@@ -86,7 +86,7 @@ bool fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, size_t &bi
  * @brief pack elem into buf starting at bitpos, using exactly b_bits bits.
  * @pre num is representable using `b_bits` bits.
  * @pre buf has at least one element
- * @pre buf has at least two elements if bitpos + b_bits > 64.
+ * @pre buf has at least two elements if bitpos + b_bits > 8*sizeof(buf).
  *
  * @param b_bits The number of bits to represent elem.
  * @param elem The number to pack, must be representable with at most `b_bits` bits.
@@ -94,27 +94,34 @@ bool fiboEncode(const uint64_t num, const size_t bufsize, BUF_t *buf, size_t &bi
  * @param bitpos The starting point in bits of where to back elem.
  * @return bool: true iff packing of elem saturates buf[0].
  */
-template <typename SRC_T, typename DEST_T>
+template <typename T>
 bool pack_int(
 	const uint32_t b_bits,
-	SRC_T elem,
-	DEST_T *buf,
+	T elem,
+	T *buf,
 	uint32_t &bitpos)
 {
-	constexpr int32_t dest_wordsize = sizeof(DEST_T) * 8;
+	constexpr int32_t dest_wordsize = sizeof(T) * 8;
+
+	// |               |               |
+	//    ^             ^
+	//  bitpos         dest_wordsize
 	int32_t shift = dest_wordsize - bitpos - b_bits;
-	DEST_T carryover = 0;
-	constexpr DEST_T ONE{1};
+	T carryover = 0;
+	constexpr T ONE{1};
 
 	if (shift < 0)
 	{
-		uint32_t r_shift = (b_bits + shift);
-		carryover = elem & ((ONE << -shift) - 1);
-		*(buf + 1) = carryover << (dest_wordsize + shift);
-		elem >>= (-shift);
+		// b_bits > (dest_wordsize - bitpos)
+		// -> number covers two elements
+
+		carryover = elem & (ONE << -shift) - 1;
+		*(buf + 1) = carryover << dest_wordsize + shift;
+		elem >>= -shift;
 	}
 
-	*buf |= (((DEST_T)elem) << std::max(0, shift));
+	// shift by max(0, shift)
+	*buf |= elem << (shift > 0) * shift;
 
 	bitpos = (dest_wordsize - shift) % dest_wordsize;
 	return (shift <= 0);
@@ -131,33 +138,32 @@ bool pack_int(
  * @param min_element The smallest element in `pfd_block`.
  * @param BUF The buffer to pack the elements of pfd_block into.
  */
+template <typename SRC_T, typename DEST_T>
 void encode_pfd_block(
-	std::vector<int32_t> &pfd_block,
-	std::vector<int32_t> &index_gaps,
-	std::vector<int32_t> &exceptions,
+	std::vector<SRC_T> &pfd_block,
+	std::vector<uint32_t> &index_gaps,
+	std::vector<SRC_T> &exceptions,
 	const uint32_t b_bits,
-	const int32_t min_element,
-	PFD_t *BUF)
+	const SRC_T min_element,
+	DEST_T *BUF)
 {
 	index_gaps.clear();
 	exceptions.clear();
 
-	uint32_t bitpos = 0;
-	uint32_t max_elem_bit_mask = (1 << b_bits) - 1;
-	uint32_t idx = 0,
+	SRC_T max_elem_bit_mask = (1ULL << b_bits) - 1;
+	uint32_t bitpos = 0,
+			 idx = 0,
 			 last_ex_idx = 0;
 
 	bool do_increment_pointer = 0;
 
 	// Store the elements in the primary block in pfd_buf using `b_bits` bits each.
-	for (auto &elem : pfd_block)
+	for (SRC_T &elem : pfd_block)
 	{
 		elem -= min_element;
 		if (elem > max_elem_bit_mask)
 		{
 			// store the overflowing, most significant bits as exceptions.
-			PFD_t exception_bits = (PFD_t)elem >> b_bits;
-
 			exceptions.push_back(elem >> b_bits);
 			index_gaps.push_back(idx - last_ex_idx);
 			last_ex_idx = idx;
@@ -166,9 +172,7 @@ void encode_pfd_block(
 			elem &= max_elem_bit_mask;
 		}
 
-		// pack_int may need more iterations if we do not have PFD_t as 64 bits.
-		// TODO: is it better to use pack_num?
-		do_increment_pointer = pack_int<uint32_t>(b_bits, elem, BUF, bitpos);
+		do_increment_pointer = pack_int<DEST_T>(b_bits, elem, BUF, bitpos);
 		BUF += do_increment_pointer;
 		++idx;
 	}
@@ -186,27 +190,28 @@ void encode_pfd_block(
  * @param min_element The smallest element in `pfd_block`.
  * @param of The ostream to write out the encoding.
  */
+
+template <typename SRC_T, typename DEST_T>
 size_t new_pfd(
 	const size_t block_size,
-	std::vector<int32_t> &pfd_block,
-	std::vector<int32_t> &index_gaps,
-	std::vector<int32_t> &exceptions,
-	PFD_t *fibonacci_buf,
+	std::vector<SRC_T> &pfd_block,
+	std::vector<uint32_t> &index_gaps,
+	std::vector<SRC_T> &exceptions,
+	DEST_T *fibonacci_buf,
 	const size_t b_bits,
-	const int32_t min_element,
+	const SRC_T min_element,
 	size_t fibonacci_bufsize,
-	PFD_t *PFD_buf
-)
+	DEST_T *PFD_buf)
 {
 	bool success = true;
-	constexpr size_t wordsize = sizeof(PFD_t) * 8;
+	constexpr size_t wordsize = sizeof(DEST_T) * 8;
 
 	size_t buf_size = (block_size * b_bits) / wordsize;
 	std::fill(PFD_buf, PFD_buf + buf_size, 0ULL);
 
 	size_t bitpos{0};
 
-	encode_pfd_block(pfd_block, index_gaps, exceptions, b_bits, min_element, PFD_buf);
+	encode_pfd_block<SRC_T, DEST_T>(pfd_block, index_gaps, exceptions, b_bits, min_element, PFD_buf);
 
 	size_t n_exceptions = index_gaps.size();
 	// For more compact fibonacci encoding, we pack the fibo encoded values together
@@ -214,21 +219,21 @@ size_t new_pfd(
 	success &= fiboEncode(min_element + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 	success &= fiboEncode(n_exceptions + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 
-	for (const auto &el : index_gaps)
+	for (const auto &i : index_gaps)
 	{
 		// we must increment by one, since the first index gap can be zero
-		success &= fiboEncode(el + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
+		success &= fiboEncode(i + 1, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
-	for (const auto &el : exceptions)
+	for (const auto &ex : exceptions)
 	{
 		// These are always > 0 since they contain the most significant bits of exception
-		success &= fiboEncode(el, fibonacci_bufsize, fibonacci_buf, bitpos);
+		success &= fiboEncode(ex, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
 	size_t n_elems = bitpos / wordsize + (bitpos % wordsize > 0);
 	success &= (n_elems + buf_size <= fibonacci_bufsize);
 
-	std::memcpy(fibonacci_buf + n_elems, PFD_buf, buf_size * sizeof(PFD_t) * success);
+	std::memcpy(fibonacci_buf + n_elems, PFD_buf, buf_size * sizeof(DEST_T) * success);
 	n_elems += buf_size;
 
 	return n_elems * success;
@@ -426,8 +431,8 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 	size_t wordsize = sizeof(PFD_t) * 8;
 	size_t buf_offset = 0;
 
-	std::vector<int32_t> index_gaps,
-		pfd_scratch,
+	std::vector<uint32_t> index_gaps;
+	std::vector<int32_t> pfd_scratch,
 		pfd_block,
 		exceptions;
 
