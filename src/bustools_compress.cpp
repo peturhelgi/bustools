@@ -254,12 +254,10 @@ template<typename T>
 void compute_pfd_params(
 	const size_t block_size,
 	std::vector<T> &pfd_scratch,
-	T &min_element,
+	const T &min_element,
 	uint32_t &b_bits)
 {
 	const size_t nth_elem_idx = (size_t)((double)block_size * 0.9);
-	std::nth_element(pfd_scratch.begin(), pfd_scratch.begin(), pfd_scratch.end());
-	min_element = pfd_scratch[0];
 
 	std::nth_element(pfd_scratch.begin(), pfd_scratch.begin() + nth_elem_idx, pfd_scratch.end());
 	T nth_max_element = pfd_scratch[nth_elem_idx];
@@ -452,19 +450,21 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 	int pfd_row_index{0};
 	size_t elems_written = 0;
 	size_t byte_count = 0;
-
 	while (row_index < row_count && success)
 	{
 		pfd_row_index = 0;
 		pfd_scratch.clear();
 		pfd_block.clear();
-		int32_t min_element = rows[row_index].ec;
+		int32_t min_element = rows[row_index].ec,
+			curr_el;
 
 		while (pfd_row_index < BLOCK_SIZE && row_index < row_count)
 		{
-			pfd_scratch.push_back(rows[row_index].ec);
-			pfd_block.push_back(rows[row_index].ec);
+			curr_el = rows[row_index].ec;
+			pfd_scratch.push_back(curr_el);
+			pfd_block.push_back(curr_el);
 
+			min_element = (min_element < curr_el) * min_element + (curr_el <= min_element) * curr_el;
 			++pfd_row_index;
 			++row_index;
 		}
