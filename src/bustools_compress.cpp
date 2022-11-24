@@ -610,7 +610,7 @@ bool compress_flags(BUSData const *const rows, const int row_count, char *obuf, 
 
 typedef bool (*compress_ptr)(BUSData const *, const int, char *, const size_t &, size_t &);
 
-void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream &outHeaderf, std::istream &in, BUSHeader &h)
+void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::istream &in, BUSHeader &h)
 {
 	constexpr size_t ROW_SIZE = sizeof(BUSData);
 
@@ -637,7 +637,7 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	pfd_blocksize = opt.pfd_blocksize;
 	comp_h.pfd_blocksize = pfd_blocksize;
 
-	writeCompressedHeader(outHeaderf, comp_h);
+	writeCompressedHeader(outf, comp_h);
 
 	std::vector<uint32_t> block_sizes;
 
@@ -645,10 +645,9 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 	size_t bufsize = (6 * chunk_size / 8) * 8;
 	size_t bufpos = 0;
 	size_t buf_checkpoint = 0;
-	size_t row_count = 0;
 
-	uint64_t block_counter = 0;
 	uint64_t block_header = 0;
+	uint64_t row_count = 0;
 
 	BUSData *busdata;
 	char *buffer;
@@ -662,9 +661,9 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 		std::fill(buffer, buffer + bufsize, 0);
 		while (in.good())
 		{
+
 			in.read((char *)busdata, chunk_size * ROW_SIZE);
 			busz_index_add(busz_index, busdata[0].barcode, outf.tellp());
-
 			row_count = in.gcount() / ROW_SIZE;
 
 			for (int i_col = 0; i_col < 5; ++i_col)
@@ -696,8 +695,8 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::ostream 
 			std::fill(buffer, buffer + bufpos, 0);
 
 			block_sizes.push_back(bufpos);
+			buf_checkpoint = 0;
 			bufpos = 0;
-			++block_counter;
 		}
 		block_header = 0;
 		outf.write((char *)&block_header, sizeof(block_header));
@@ -916,22 +915,18 @@ void bustools_compress(const Bustools_opt &opt)
 
 	std::ofstream of;
 	std::streambuf *buf = nullptr;
-	std::streambuf *headerBuf = nullptr;
 
 	if (opt.stream_out)
 	{
 		buf = std::cout.rdbuf();
-		headerBuf = buf;
 	}
 	else
 	{
 		of.open(opt.output);
 		buf = of.rdbuf();
-		headerBuf = buf;
 	}
 
 	std::ostream outf(buf);
-	std::ostream outHeader(headerBuf);
 
 	for (const auto &infn : opt.files)
 	{
@@ -955,7 +950,7 @@ void bustools_compress(const Bustools_opt &opt)
 		{
 			case BUSFILE_TYPE::BUSFILE:
 				// Compress a BUS file
-				compress_busfile(opt, outf, outHeader, in, h);
+				compress_busfile(opt, outf, in, h);
 				break;
 			case BUSFILE_TYPE::BUSFILE_COMPRESED:
 				// decompress busz file
