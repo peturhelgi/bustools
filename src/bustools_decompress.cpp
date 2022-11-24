@@ -247,15 +247,19 @@ size_t PfdParsePrimaryBlock(
 
 	while (i < n_ints && bufpos < bufsize)
 	{
-		// I: 0 <= bit_pos < 64
+		// I: 0 <= bit_pos < wordsize
 
+		// The max number of bit we can read from current element, no more than b_bits
 		uint32_t n_partial = std::min(b_bits, wordsize - bit_pos);
 		uint32_t bits_rem = b_bits - n_partial;
 
 		uint32_t shift = (wordsize - n_partial - bit_pos);
-		PFD_t mask = (ONE << n_partial) - 1;
+		SRC_T mask = (ONE << n_partial) - 1;
 
-		int32_t num = ((buf[bufpos] >> shift) & mask) << bits_rem;
+		// right shift extract from buf
+		// left shift num if the current number covers two elements in buf
+
+		DEST_T num = ((buf[bufpos] >> shift) & mask) << bits_rem;
 
 		bit_pos = (bit_pos + n_partial) % wordsize;
 
@@ -406,47 +410,47 @@ void decompress_lossy_umi(char *BUF, BUSData *rows, const size_t &row_count, con
  * @param row_count The number of elements in `rows` to decode.
  * @param buf_size The size of the input array `BUF`.
  */
+template <typename T>
 void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, const size_t &buf_size, size_t &bufpos)
 {
-	PFD_t *pfd_buf = (PFD_t *)(BUF + bufpos);
-	size_t pfd_bufsize = (buf_size - bufpos) / sizeof(PFD_t);
+	T *pfd_buf = (T *)(BUF + bufpos);
+	size_t pfd_bufsize = (buf_size - bufpos) / sizeof(T);
 	size_t buf_offset{0};
 	size_t bitpos{0};
 
-	int32_t min_element{0};
-	
 	const size_t block_size = d_pfd_blocksize;
 
 	int32_t primary[block_size];
+	uint32_t b_bits = 1;
+	int32_t min_element{0};
 	uint64_t n_exceptions{0};
+
 	std::vector<uint32_t> exceptions;
 	std::vector<uint32_t> index_gaps;
-
-	uint32_t b_bits = 1;
 
 	size_t row_index = 0;
 	while (row_index < row_count)
 	{
 		index_gaps.clear();
 		exceptions.clear();
-		b_bits = fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
 
-		min_element = fiboDecodeSingle<PFD_t, int32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
-		n_exceptions = fiboDecodeSingle<PFD_t, uint64_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
+		b_bits = fiboDecodeSingle<T, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
+		min_element = fiboDecodeSingle<T, int32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
+		n_exceptions = fiboDecodeSingle<T, uint64_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1;
 
 		for (int i = 0; i < n_exceptions; ++i)
 		{
-			index_gaps.push_back(fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1);
+			index_gaps.push_back(fiboDecodeSingle<T, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset) - 1);
 		}
 		for (int i = 0; i < n_exceptions; ++i)
 		{
-			exceptions.push_back(fiboDecodeSingle<PFD_t, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset));
+			exceptions.push_back(fiboDecodeSingle<T, uint32_t>(pfd_buf, pfd_bufsize, bitpos, buf_offset));
 		}
 
 		buf_offset += (bitpos > 0);
 		bitpos = 0;
 
-		buf_offset = PfdParsePrimaryBlock(pfd_buf, pfd_bufsize, block_size, b_bits, primary, bitpos, buf_offset);
+		buf_offset = PfdParsePrimaryBlock<T, int32_t>(pfd_buf, pfd_bufsize, block_size, b_bits, primary, bitpos, buf_offset);
 
 		updatePFD(block_size, primary, index_gaps, exceptions, b_bits, min_element);
 
@@ -458,7 +462,7 @@ void decompress_ec(char *BUF, BUSData *rows, const size_t &row_count, const size
 	}
 
 	buf_offset += bitpos > 0;
-	bufpos += buf_offset * sizeof(PFD_t);
+	bufpos += buf_offset * sizeof(T);
 }
 
 /**
@@ -693,7 +697,7 @@ void decompress_buszfile(std::istream &in, compressed_BUSHeader &comp_h, std::os
 	decompress_ptr decompressors[5]{
 		&decompress_barcode,
 		comp_h.lossy_umi ? &decompress_lossy_umi : &decompress_lossless_umi,
-		&decompress_ec,
+		&decompress_ec<PFD_t>,
 		&decompress_counts,
 		&decompress_flags,
 	};

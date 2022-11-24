@@ -249,23 +249,22 @@ size_t new_pfd(
  * @param min_element Output: The smallest element in `pfd_scratch`.
  * @param b_bits Output: The minimum number of bits that are enough to encode at least ~90% of the elements in `pfd_scratch`.
  */
+
+template<typename T>
 void compute_pfd_params(
 	const size_t block_size,
-	std::vector<int32_t> &pfd_scratch,
-	int32_t &min_element,
+	std::vector<T> &pfd_scratch,
+	T &min_element,
 	uint32_t &b_bits)
 {
 	const size_t nth_elem_idx = (size_t)((double)block_size * 0.9);
 	std::nth_element(pfd_scratch.begin(), pfd_scratch.begin(), pfd_scratch.end());
 	min_element = pfd_scratch[0];
 
-	std::nth_element(
-		pfd_scratch.begin(),
-		pfd_scratch.begin() + nth_elem_idx,
-		pfd_scratch.end());
+	std::nth_element(pfd_scratch.begin(), pfd_scratch.begin() + nth_elem_idx, pfd_scratch.end());
+	T nth_max_element = pfd_scratch[nth_elem_idx];
 
-	int32_t nth_max_element = pfd_scratch[nth_elem_idx];
-	b_bits = 31 - __builtin_clrsb(nth_max_element - min_element);
+	b_bits = sizeof(T) * 8 - 1 - __builtin_clrsb(nth_max_element - min_element);
 	b_bits = b_bits ?: 1;
 }
 
@@ -424,11 +423,12 @@ bool lossy_compress_umis(BUSData const *const rows, const int row_count, char *o
  * @param of The ostream for writing the encoding to.
  * @return bool true iff encoding does not go out of bounds of obuf
  */
+template <typename T>
 bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
 	bool success = true;
 	size_t BLOCK_SIZE{pfd_blocksize};
-	size_t wordsize = sizeof(PFD_t) * 8;
+	size_t wordsize = sizeof(T) * 8;
 	size_t buf_offset = 0;
 
 	std::vector<uint32_t> index_gaps;
@@ -438,15 +438,15 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 
 	// todo: We might be able to speed up by creating the primary array here.
 	size_t max_size_block = BLOCK_SIZE * sizeof(int32_t);
-	PFD_t *primary_block = new PFD_t[max_size_block];
+	T *primary_block = new T[max_size_block];
 
 	exceptions.reserve(BLOCK_SIZE);
 	index_gaps.reserve(BLOCK_SIZE);
 	pfd_scratch.reserve(BLOCK_SIZE);
 	pfd_block.reserve(BLOCK_SIZE);
 
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(PFD_t);
-	PFD_t *fibonacci_buf = (PFD_t *)(obuf + global_bufpos);
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
 
 	int row_index{0};
 	int pfd_row_index{0};
@@ -458,6 +458,7 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 		pfd_row_index = 0;
 		pfd_scratch.clear();
 		pfd_block.clear();
+		int32_t min_element = rows[row_index].ec;
 
 		while (pfd_row_index < BLOCK_SIZE && row_index < row_count)
 		{
@@ -469,15 +470,23 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
 		}
 
 		uint32_t b_bits = 0;
-		int32_t min_element = 0;
-		compute_pfd_params(BLOCK_SIZE, pfd_scratch, min_element, b_bits);
+		compute_pfd_params(pfd_row_index, pfd_scratch, min_element, b_bits);
 
-		// we don't want to reset the fibonacci bytes, as this is or primary buffer.
-		elems_written = new_pfd(BLOCK_SIZE, pfd_block, index_gaps, exceptions, fibonacci_buf + buf_offset, b_bits, min_element, fibonacci_bufsize - buf_offset, primary_block);
+		// we don't want to reset the fibonacci bytes, as this is our primary buffer.
+		elems_written = new_pfd<int32_t, T>(
+			BLOCK_SIZE,
+			pfd_block,
+			index_gaps,
+			exceptions,
+			fibonacci_buf + buf_offset,
+			b_bits,
+			min_element,
+			fibonacci_bufsize - buf_offset,
+			primary_block);
 
 		success &= (elems_written > 0);
 		buf_offset += elems_written;
-		byte_count += elems_written * sizeof(PFD_t);
+		byte_count += elems_written * sizeof(T);
 	}
 
 	global_bufpos += byte_count;
@@ -605,7 +614,7 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::istream 
 	compress_ptr compressors[5]{
 		&compress_barcodes,
 		(opt.lossy_umi ? &lossy_compress_umis : &lossless_compress_umis),
-		&compress_ecs,
+		&compress_ecs<PFD_t>,
 		&compress_counts,
 		&compress_flags,
 	};
