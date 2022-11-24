@@ -274,16 +274,17 @@ void compute_pfd_params(
  * @param of The ostream for writing the encoding to.
  * @return bool true iff encoding does not go out of bounds of obuf
  */
+template <typename T>
 bool compress_barcodes(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
 	bool success = true;
 	uint64_t barcode = 0,
 			 last_bc = 0,
 			 runlen = 0;
-	size_t wordsize = sizeof(FIBO_t) * 8;
+	size_t wordsize = sizeof(T) * 8;
 
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
-	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
 	size_t bitpos{0};
 
 	for (int i = 0; i < row_count && success; ++i)
@@ -326,7 +327,7 @@ bool compress_barcodes(BUSData const *const rows, const int row_count, char *obu
 		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
 	return success;
 }
 
@@ -338,6 +339,7 @@ bool compress_barcodes(BUSData const *const rows, const int row_count, char *obu
  * @param of The ostream for writing the encoding to.
  * @return bool true iff encoding does not go out of bounds of obuf
  */
+template <typename T>
 bool lossless_compress_umis(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
 	bool success = true;
@@ -345,10 +347,10 @@ bool lossless_compress_umis(BUSData const *const rows, const int row_count, char
 			 last_umi = 0,
 			 bc, umi, diff;
 
-	size_t wordsize = sizeof(FIBO_t) * 8;
+	size_t wordsize = sizeof(T) * 8;
 
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
-	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
 	size_t bitpos{0};
 
 	uint64_t runlen{0};
@@ -401,11 +403,12 @@ bool lossless_compress_umis(BUSData const *const rows, const int row_count, char
 		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
 
 	return success;
 }
 
+template <typename T>
 bool lossy_compress_umis(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
 	bool success = true;
@@ -503,6 +506,7 @@ bool compress_ecs(BUSData const *const rows, const int row_count, char *obuf, co
  * @param of The ostream for writing the encoding to.
  * @return bool true iff encoding does not go out of bounds of obuf
  */
+template <typename T>
 bool compress_counts(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
 	bool success = true;
@@ -510,10 +514,10 @@ bool compress_counts(BUSData const *const rows, const int row_count, char *obuf,
 	uint32_t count;
 	uint64_t runlen{0};
 
-	size_t wordsize = sizeof(FIBO_t) * 8;
+	size_t wordsize = sizeof(T) * 8;
 
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
-	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
 	size_t bitpos{0};
 
 	for (int i = 0; i < row_count && success; ++i)
@@ -542,8 +546,7 @@ bool compress_counts(BUSData const *const rows, const int row_count, char *obuf,
 		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
 	return success;
 }
 
@@ -555,6 +558,7 @@ bool compress_counts(BUSData const *const rows, const int row_count, char *obuf,
  * @param of The ostream for writing the encoding to.
  * @return bool true iff encoding does not go out of bounds of obuf
  */
+template <typename T>
 bool compress_flags(BUSData const *const rows, const int row_count, char *obuf, const size_t &obuf_size, size_t &global_bufpos)
 {
 	bool success = true;
@@ -562,10 +566,10 @@ bool compress_flags(BUSData const *const rows, const int row_count, char *obuf, 
 	uint32_t flag,
 		runlen{0};
 
-	size_t wordsize = sizeof(FIBO_t) * 8;
+	size_t wordsize = sizeof(T) * 8;
 
-	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(FIBO_t);
-	FIBO_t *fibonacci_buf = (FIBO_t *)(obuf + global_bufpos);
+	const size_t fibonacci_bufsize = (obuf_size - global_bufpos) / sizeof(T);
+	T *fibonacci_buf = (T *)(obuf + global_bufpos);
 	size_t bitpos{0};
 	// don't need to fill with zeros as that is done prior.
 
@@ -598,7 +602,7 @@ bool compress_flags(BUSData const *const rows, const int row_count, char *obuf, 
 		success &= fiboEncode(runlen, fibonacci_bufsize, fibonacci_buf, bitpos);
 	}
 
-	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(FIBO_t);
+	global_bufpos += (bitpos / wordsize + (bitpos % wordsize > 0)) * sizeof(T);
 	return success;
 }
 
@@ -612,11 +616,11 @@ void compress_busfile(const Bustools_opt &opt, std::ostream &outf, std::istream 
 	const size_t chunk_size = (N < opt.chunk_size) ? N : opt.chunk_size;
 
 	compress_ptr compressors[5]{
-		&compress_barcodes,
-		(opt.lossy_umi ? &lossy_compress_umis : &lossless_compress_umis),
-		&compress_ecs<PFD_t>,
-		&compress_counts,
-		&compress_flags,
+		&compress_barcodes<uint64_t>,
+		(opt.lossy_umi ? &lossy_compress_umis<uint64_t> : &lossless_compress_umis<uint64_t>),
+		&compress_ecs<uint32_t>,
+		&compress_counts<uint64_t>,
+		&compress_flags<uint64_t>,
 	};
 
 	compressed_BUSHeader comp_h;
